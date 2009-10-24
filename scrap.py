@@ -53,6 +53,7 @@ class NullHandler(logging.Handler):
 # These constants represents the functions that this Scraper
 # can perform.
 #
+FN_GET_SETTINGS              = "GetSettings"
 FN_GET_EPISODE_LIST_INTERNAL = "GetEpisodeListInternal"
 FN_CREATE_SEARCH_URL         = "CreateSearchURL"
 FN_GET_SEARCH_RESULTS        = "GetSearchResults"
@@ -218,7 +219,7 @@ def get_child_data(node, tag_name, default = None):
     We use this pattern all the time when pulling text out of dom
     where we have:
 
-       <foo><bar>some text</bar></foo> 
+       <foo><bar>some text</bar></foo>
 
     where `node` passed in a handle on <foo>
 
@@ -636,7 +637,7 @@ class ScraperParser(object):
 
     ##################################################################
     #
-    def check_condition(self, element, conditions = { }):
+    def check_condition(self, element, settings = None):
         """
         <RegExp> statements may have a 'conditional' attribute. This attribute
         is a test we need to apply to see if we should or should not evaluate
@@ -651,8 +652,8 @@ class ScraperParser(object):
 
         Arguments:
         - `element`: The element we are checking the conditional attribute of
-        - `conditions`: The dict of set conditions. Keys are the condition
-                        names, the values are expected to be True or False.
+        - `settings`: The object containing all of our settings. If it is None
+                      then all of the settings we query will default to False.
         """
         conditional = element.getAttribute("conditional")
 
@@ -660,6 +661,9 @@ class ScraperParser(object):
         #
         if len(conditional) == 0:
             return True
+
+
+        print "Checking condition: %s" % conditional
 
         # We have a conditional. See if it begins with a '!', which inverts
         # our test.
@@ -669,8 +673,9 @@ class ScraperParser(object):
             result = False
             conditional = conditional[1:]
 
-        if conditional in conditions:
-            if conditions[conditional] is True:
+        if settings is not None and conditional in settings.ids:
+            print "Have conditional in settings, value; %s" % settigns.value(conditional)
+            if settings.value(conditional) is True:
                 return result
             return not result
         return not result
@@ -885,7 +890,7 @@ class ScraperParser(object):
 
     ##################################################################
     #
-    def parse_regexp(self, regexp_elt):
+    def parse_regexp(self, regexp_elt, settings = None):
         """
 
         Arguments:
@@ -910,7 +915,7 @@ class ScraperParser(object):
 
             # We skip regexp's whose condition does not evaluate to True
             #
-            if self.check_condition(regexp_elt):
+            if self.check_condition(regexp_elt, settings):
                 # If this element has a child <RegExp> element, then loop
                 # over it and its sibling <RegExp> elements, performing a
                 # depth-first parsing of <RegExp> elements.
@@ -938,7 +943,7 @@ class ScraperParser(object):
 
     ##################################################################
     #
-    def parse(self, tag_name):
+    def parse(self, tag_name, settings = None):
         """
 
         Arguments:
@@ -959,7 +964,7 @@ class ScraperParser(object):
         #       printout how deep we are in nested <regexp>'s.
         #
         self.regexp_level = 0
-        self.parse_regexp(first_child(child_element, "RegExp"))
+        self.parse_regexp(first_child(child_element, "RegExp"), settings)
 
         # our return result is the contents of the parameter buffer.
         # We clear the buffers after we are done our work.
@@ -1054,6 +1059,152 @@ class ScraperParser(object):
 ##################################################################
 ##################################################################
 #
+class Settings(object):
+    """
+    Scrapers can have settings. The purpose of this class is to hold
+    the definition of those setting as given by the scraper so that
+    other code can interrogate them for dispaly and setting in a UI.
+
+    A setting definition has a label, id, type, value, and optionally
+    a default.
+
+    The settings object also holds the current state of the settings
+    as well as their default.
+
+    XXX I wonder if we should have a 'setting' class that is an
+        individual setting instead of a settings class. I am using a
+        settings class that holds all of the settings to make the
+        parsing of the settings definitions and passing them around a
+        little more collected.
+    """
+
+    ##################################################################
+    #
+    def __init__(self, settings_xml):
+        """
+        A settings object is initialized with the '<settings>' XML
+        output of the scraper. We take this and parse it into a set of
+        dictionaries that describe the settings and their values. The
+        key for these dictionaries is the setting id.
+        """
+        # The list of setting ids.
+        #
+        # XXX This is redundant. We could just get the ids from
+        #     getting the values of any of our dicts.
+        #
+        self.ids = []
+        self.values = { }
+        self.types = { }
+        self.defaults = { }
+        self.labels = { }
+
+        # There is always an 'override' setting - "override", which is
+        # set based on the Language Override setting in the scraper.
+        #
+        self.ids.append("override")
+        self.values["override"] = False
+        self.types["override"] = "bool"
+        self.defaults["override"] = False
+        self.labels["override"] = "Language Override"
+
+        dom = parseString(settings_xml)
+        s = dom.firstChild
+
+        setting = first_child(s, "setting")
+        while setting:
+            setting_id = setting.getAttribute("id")
+
+            # I know the 'sep' setting has no id. I am not sure what it is used
+            # for so I am just going to skip it.
+            #
+            if setting_id != "":
+                self.ids.append(setting_id)
+                self.labels[setting_id] = setting.getAttribute("label")
+                self.types[setting_id] = setting.getAttribute("type")
+
+                # For bool's actually set the default value to True or False.
+                # otherwise it is all strings to us.
+                #
+                default = setting.getAttribute("default")
+                if self.types[setting_id] == "bool":
+                    self.defaults[setting_id] = (default.lower() == 'true')
+                else:
+                    self.defaults[setting_id] = default
+
+                # Settings start out with their default value.
+                #
+                self.values[setting_id] = default
+            setting = next_sibling(setting, "setting")
+
+        dom.unlink()
+        dom = None
+        return
+
+    ##################################################################
+    #
+    def value(self, setting_id):
+        """
+        Return the value of the given setting.
+
+        Arguments:
+        - `setting_id`: The string id for this setting. If the setting
+                        does not exist we go out on a limb and return False.
+        """
+        if setting_id not in self.values:
+            return False
+        return self.values[setting_id]
+
+    ##################################################################
+    #
+    def set_value(self, setting_id, value):
+        """
+        Set the given setting to the given value.
+
+        NOTE: You can only set values for id's that exist.
+
+        XXX We should do type checking on the value.
+
+        Arguments:
+        - `setting_id`: The id for the setting..
+        - `value`: The value to set it to.
+        """
+        if setting_id not in self.values:
+            raise KeyError
+        self.values[setting_id] = value
+        return
+
+    ##################################################################
+    #
+    def reset(self, setting_id = None):
+        """
+        Reset a setting to its default value. If no id is given then all
+        of the values are reset to their defaults.
+
+        Arguments:
+        - `setting_id`: The id to reset.
+        """
+        if setting_id is None:
+            self.values = self.defaults.copy()
+        else:
+            self.values[setting_id] = self.defaults[setting_id]
+        return
+
+    ##################################################################
+    #
+    def __str__(self):
+        result = []
+        for setting_id in self.ids:
+            result.append("id: %s, label: '%s', type: %s, default: '%s', " \
+                              "value: '%s'" % (setting_id,
+                                               self.labels[setting_id],
+                                               self.types[setting_id],
+                                               self.defaults[setting_id],
+                                               self.values[setting_id]))
+        return "< Setting: %s >" % "; ".join(result)
+
+##################################################################
+##################################################################
+#
 class Scraper(object):
     """
     The work horse object that is given an XML file, a show name, and
@@ -1085,6 +1236,11 @@ class Scraper(object):
         # this from the network if we already have fetched a copy.
         #
         self.cache = { }
+
+        # We need the settings parsed before the user does any lookups
+        #
+        settings_xml = self.parser.parse(FN_GET_SETTINGS)
+        self.settings = Settings(settings_xml)
 
         return
 
@@ -1153,7 +1309,7 @@ class Scraper(object):
                         f.write(url_result)
 
                     self.parser.set_buffer(1, url_result)
-                    custom_result = self.parser.parse(function)
+                    custom_result = self.parser.parse(function, self.settings)
 
                     # XXX debugging output
                     #
@@ -1209,7 +1365,7 @@ class Scraper(object):
         # buffer #1.
         #
         self.parser.set_buffer(1,search_string)
-        url = self.parser.parse(FN_CREATE_SEARCH_URL)
+        url = self.parser.parse(FN_CREATE_SEARCH_URL, self.settings)
 
         # XXX We write out these files as we go through this step by step
         #     but for our use I think this will serve no purpose beyond
@@ -1248,7 +1404,7 @@ class Scraper(object):
 
         # Parse the <GetSearchResults> tag from our XML definition.
         #
-        search_results = self.parser.parse(FN_GET_SEARCH_RESULTS)
+        search_results = self.parser.parse(FN_GET_SEARCH_RESULTS, self.settings)
 
         # XXX I think we only need this file for debugging. Eventually
         #     we will just remove this output statement.
@@ -1313,7 +1469,7 @@ class Scraper(object):
             self.logger.debug("get_details: buffer: %d entity id: %s" % \
                               (i+1,entity_id))
 
-        details = self.parser.parse(FN_GET_DETAILS)
+        details = self.parser.parse(FN_GET_DETAILS, self.settings)
 
         # XXX I think we only need this file for debugging. Eventually
         #     we will just remove this output statement.
@@ -1367,7 +1523,8 @@ class Scraper(object):
         episode_list_results = []
         for i, episode_list in enumerate(episode_lists):
             self.parser.set_buffer(1, episode_list)
-            episode_list_result = self.parser.parse(FN_GET_EPISODE_LIST)
+            episode_list_result = self.parser.parse(FN_GET_EPISODE_LIST,
+                                                    self.settings)
 
             # XXX write retrieved parsed xml data for debugging
             #
@@ -1403,7 +1560,8 @@ class Scraper(object):
 
         self.parser.set_buffer(1, url_data)
 
-        episode_details = self.parser.parse(FN_GET_EPISODE_DETAILS)
+        episode_details = self.parser.parse(FN_GET_EPISODE_DETAILS,
+                                            self.settings)
 
         with open("episodedetails.%d.xml" % i, "w") as f:
             f.write(episode_details)
@@ -1418,7 +1576,7 @@ class Scraper(object):
         Augment the episode object with the finer details for it.
 
         It returns the episode object that we update.
-        
+
         Arguments:
         - `episode`: Episode object to get more details for.
         """
@@ -1430,15 +1588,16 @@ class Scraper(object):
         #
         if hasattr(url_data, '__iter__'):
             url_data = url_data[0]
-        
+
         self.parser.set_buffer(1, url_data)
         self.parser.set_buffer(2, episode.id)
-        episode_details = self.parser.parse(FN_GET_EPISODE_DETAILS)
+        episode_details = self.parser.parse(FN_GET_EPISODE_DETAILS,
+                                            self.settings)
 
         self.logger.debug("Episode details: %s" % episode_details)
         episode.set_details(episode_details)
         return episode
-    
+
     ##################################################################
     #
     def get_episode_list(self, show):
@@ -1477,7 +1636,8 @@ class Scraper(object):
             # parse this in to a dom and then go through each <episode>
             # element creating an Episode object to append to our episode
             # list
-            ep_list_result = self.parser.parse(FN_GET_EPISODE_LIST)
+            ep_list_result = self.parser.parse(FN_GET_EPISODE_LIST,
+                                               self.settings)
             dom  =parseString(ep_list_result)
             eps = dom.firstChild
             ep = first_child(eps, "episode")
@@ -1538,7 +1698,7 @@ class Scraper(object):
                               (i+1, lookup_result.id))
         self.parser.set_buffer(i+1, lookup_result.id)
         self.logger.debug("get_details: calling GetDetails parser")
-        details = self.parser.parse(FN_GET_DETAILS)
+        details = self.parser.parse(FN_GET_DETAILS, self.settings)
 
         # If this is a 'movie' type lookup, then we pass these details
         # in to the custom function processor to suss out the movie's details
