@@ -202,6 +202,13 @@ def main():
     #
     cp = CommandProcessor(options.scraper, logger)
 
+    # Print out any settings that the scraper may have.
+    #
+    for sid in cp.scraper.settings.ids:
+        print "Setting: %s(%s): %s" % \
+            (cp.scraper.settings.labels[sid], sid,
+             cp.scraper.settings.values[sid])
+
     # We have a result state object that is used to hold the results
     # of various commands. This way successive commands can operate on the
     # results of previous commands.

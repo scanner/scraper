@@ -315,6 +315,8 @@ class ScrapeURL(object):
         # url.
         #
         if self.base_url and self.url != "" and self.url[0:4].lower() != "http":
+            print "Augmenting url '%s' with base url: %s" % (self.url,
+                                                             self.base_url)
             self.url = self.base_url + self.url
 
         # XXX Hack hack.. some URL's have strings for which I can not find
@@ -351,6 +353,12 @@ class ScrapeURL(object):
                 return self.cache[self.cache_key]
             else:
                 print "Did not find cached value for key '%s'" % self.cache_key
+
+        # If the actual URL is the empty string, and we did not have a cached
+        # result for it, then we can not retrieve anything. Return None.
+        #
+        if self.url is None or len(self.url) == 0:
+            return None
 
         if not self.use_post:
             # If we are NOT using 'POST' to query the URL we can create a
@@ -1133,7 +1141,7 @@ class Settings(object):
 
                 # Settings start out with their default value.
                 #
-                self.values[setting_id] = default
+                self.values[setting_id] = self.defaults[setting_id]
             setting = next_sibling(setting, "setting")
 
         dom.unlink()
@@ -1274,6 +1282,39 @@ class Scraper(object):
         temp = f.read()
         f.close()
 
+    ##################################################################
+    #
+    def custom_function(self, url):
+        """
+        We are passed a ScrapeURL object that has a custom function.
+
+        We ask the URL object for its data. If it returns any we then
+        pass that in to the scraper to process via the specific function,
+        if it has it (and it should because the scraper is what gave us the
+        custom function to invoke.)
+
+        Arguments:
+        - `url`: A ScrapeURL object whose data we pass to the scraper to parse
+                 via the specified custom function 
+        """
+
+        # We must have a custom function and poking this URL for its data
+        # must return some data in order for us to bother trying to parse
+        # the data.
+        #
+        if url.function is None:
+            return None
+
+        url_data = url.get()
+        if url_data is None:
+            return None
+
+        # As is usual with such things, the input data goes in to buffer
+        # one of our parser.
+        #
+        self.parser.set_buffer(1, url_data)
+        return self.parser.parse(url.function, self.settings)
+    
     ##################################################################
     #
     def custom_functions(self, functions):
@@ -1704,7 +1745,20 @@ class Scraper(object):
         # in to the custom function processor to suss out the movie's details
         #
         if self.parser.content == "movies":
-            return MovieDetails(details, lookup_result, self)
+            movie_details = MovieDetails(details, lookup_result, self)
+            # The movie details may have custom functions. If our MovieDetails
+            # object has a method to deal with the results of a specific
+            # custom function, then invoke the custom function on the scraper
+            # then invoke that method on the MovieDetails object
+            #
+            for url in movie_details.urls:
+                if url.function and hasattr(movie_details, "fn_"+url.function):
+                    details = self.custom_function(url)
+                    print "Details: %s" % details
+                    if details:
+                        getattr(movie_details, "fn_" + url.function)(details)
+            
+            return movie_details
         else:
             return TVShowDetails(details, lookup_result, self)
 
@@ -1879,6 +1933,12 @@ class MovieDetails(ShowDetails):
         self.outline = ''
         self.plot = ''
 
+        # Further lookups for this item may only give us partial URL's
+        # We take the first lookup detail link's url and use that as a
+        # base url for further lookups.
+        #
+        self.base_url = self.lookup_result.links[0].url
+
         dom = parseString(details)
         ep = dom.firstChild
 
@@ -1906,12 +1966,103 @@ class MovieDetails(ShowDetails):
         self.urls = []
         url = first_child(ep, "url")
         while url:
-            self.urls.append(ScrapeURL(url, cache = scraper.cache))
+            self.urls.append(ScrapeURL(url, cache = self.scraper.cache,
+                                       base_url = self.base_url))
             url = next_sibling(url, "url")
 
         dom.unlink()
         dom = None
         return
+
+    ##################################################################
+    #
+    def fn_GetMoviePlot(self, details):
+        """
+        The handler for the 'GetMoviePlot' scraper custom function.
+
+        Arguments:
+        - `details`: XML 'GetMoviePlot' custom function results
+        """
+
+        # If the custom url was not actually defined and we had no cached
+        # data, then there is nothing to do.
+        #
+        if details is None:
+            return
+
+        print "GetMoviePlot details: %s" % details
+
+    ##################################################################
+    #
+    def fn_GetMovieCast(self, details):
+        """
+        The handler for the 'GetMovieCast' scraper custom function.
+
+        Arguments:
+        - `details`: XML 'GetMovieCast' custom function results
+        """
+
+        # If the custom url was not actually defined and we had no cached
+        # data, then there is nothing to do.
+        #
+        if details is None:
+            return
+
+        print "GetMovieCast details: %s" % details
+
+    ##################################################################
+    #
+    def fn_GetMovieDirectors(self, details):
+        """
+        The handler for the 'GetMovieDirectors' scraper custom function.
+
+        Arguments:
+        - `details`: XML 'GetMovieDirectors' custom function results
+        """
+
+        # If the custom url was not actually defined and we had no cached
+        # data, then there is nothing to do.
+        #
+        if details is None:
+            return
+
+        print "GetMovieDirectors details: %s" % details
+
+    ##################################################################
+    #
+    def fn_GetMovieWriters(self, details):
+        """
+        The handler for the 'GetMovieWriters' scraper custom function.
+
+        Arguments:
+        - `details`: XML 'GetMovieWriters' custom function results
+        """
+
+        # If the custom url was not actually defined and we had no cached
+        # data, then there is nothing to do.
+        #
+        if details is None:
+            return
+
+        print "GetMovieWriters details: %s" % details
+
+    ##################################################################
+    #
+    def fn_GetIMDBPoster(self, details):
+        """
+        The handler for the 'GetIMDBPoster' scraper custom function.
+
+        Arguments:
+        - `details`: XML 'GetIMDBPoster' custom function results
+        """
+
+        # If the custom url was not actually defined and we had no cached
+        # data, then there is nothing to do.
+        #
+        if details is None:
+            return
+
+        print "GetIMDBPoster details: %s" % details
 
     ##################################################################
     #
