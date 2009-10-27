@@ -1784,6 +1784,19 @@ class Scraper(object):
                 details = self.custom_function(url)
                 if details is None:
                     continue
+                # NOTE: we recurse here because the output of a custom
+                #       function may have more url's with functions in
+                #       them. We need to either recurse and then pass
+                #       the results back up.. or pass the object (in
+                #       this case a moviedetails object down the
+                #       stack, and at every level see if there is a
+                #       fn_ to invoke. I think we will do
+                #       that.. basically we invoke any custom url's
+                #       come across, and if the details object has an
+                #       appropriate function we pass the details to it
+                #       as well. It should work our that we only call
+                #       fn_ functions for leaf nodes in our recursion.
+
                 if url.function and hasattr(movie_details, "fn_"+url.function):
                     getattr(movie_details, "fn_" + url.function)(details)
                 else:
