@@ -1311,7 +1311,7 @@ class Scraper(object):
 
     ##################################################################
     #
-    def custom_function(self, url):
+    def custom_function(self, url, entity = None):
         """
         We are passed a ScrapeURL object that has a custom function.
 
@@ -1320,9 +1320,21 @@ class Scraper(object):
         if it has it (and it should because the scraper is what gave us the
         custom function to invoke.)
 
+        If the results we get back have any <url></url>'s that also
+        have a 'function' attribute then we recurse calling ourselves
+        with those custom functions.
+
+        We also pass the results of a custom function (before
+        recursing) to entity object if we were passed it.  If the
+        entity has a method 'fn_<foo>' where <foo> is the custom
+        function we have just parsed, then we pass the results of the
+        custom function to that method on the entity.
+
         Arguments:
         - `url`: A ScrapeURL object whose data we pass to the scraper to parse
                  via the specified custom function
+        - `entity`: The entity that will parse the results of our custom
+                    functions.
         """
 
         # We must have a custom function and poking this URL for its data
@@ -1340,7 +1352,30 @@ class Scraper(object):
         # one of our parser.
         #
         self.parser.set_buffer(1, url_data)
-        return self.parser.parse(url.function, self.settings)
+        details = self.parser.parse(url.function, self.settings)
+
+        if details is None:
+            return
+
+        dom = parseString(details)
+        d = details.firstChild
+
+        # See if our entity knows how to deal with the results of this
+        # custom function.
+        #
+        if hasattr(entity, "fn_" + url.function):
+            getattr(entity, "fn_" + url.function)(details)
+
+        # Now see if we have any custom functions in our results.. if we
+        # do, recurse for each one we find.
+        #
+        u = first_child(d, "url")
+        while u:
+            self.custom_function(u, entity)
+            u = next_sibling(u, "url")
+            
+        dom.unlink()
+        return
 
     ##################################################################
     #
@@ -1779,28 +1814,8 @@ class Scraper(object):
             # custom function, then invoke the custom function on the scraper
             # then invoke that method on the MovieDetails object.
             #
-            print "Custom functions: "
             for url in movie_details.urls:
-                details = self.custom_function(url)
-                if details is None:
-                    continue
-                # NOTE: we recurse here because the output of a custom
-                #       function may have more url's with functions in
-                #       them. We need to either recurse and then pass
-                #       the results back up.. or pass the object (in
-                #       this case a moviedetails object down the
-                #       stack, and at every level see if there is a
-                #       fn_ to invoke. I think we will do
-                #       that.. basically we invoke any custom url's
-                #       come across, and if the details object has an
-                #       appropriate function we pass the details to it
-                #       as well. It should work our that we only call
-                #       fn_ functions for leaf nodes in our recursion.
-
-                if url.function and hasattr(movie_details, "fn_"+url.function):
-                    getattr(movie_details, "fn_" + url.function)(details)
-                else:
-                    print "Skipping %s, %s" % (str(url), details)
+                self.custom_function(url, movie_details)
 
             return movie_details
         else:
@@ -2174,7 +2189,7 @@ class MovieDetails(ShowDetails):
         result.append("Studio: %s" % self.studio)
         result.append("Outline: %s" % self.outline)
         result.append("Plot: %s" % self.plot)
-        return "\n".join(result)
+        return ("\n".join(result)).encode('ascii','xmlcharrefreplace')
 
 ##################################################################
 ##################################################################
