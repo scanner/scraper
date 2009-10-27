@@ -81,6 +81,37 @@ class CommandProcessor(object):
         f.close()
         self.scraper = scrap.Scraper(xml, logger)
 
+    ##################################################################
+    #
+    def cmd_settings(self):
+        """
+        Display the current settings of the scraper.
+        """
+        # Print out any settings that the scraper may have.
+        #
+        for sid in self.scraper.settings.ids:
+            print "Setting: %s(%s): %s" % \
+                (self.scraper.settings.labels[sid], sid,
+                 self.scraper.settings.values[sid])
+
+    ##################################################################
+    #
+    def cmd_set_setting(self, setting_id, value):
+        """
+        Set a given setting to a given value. IF you try to set a setting that
+        does not exist we give you an error.
+
+        Arguments:
+        - `setting_id`: The setting to set.
+        - `value`: The value to set it to.
+        """
+        try:
+            self.scraper.settings.set_value(setting_id, value)
+        except KeyError:
+            print "There is no such setting '%s'." % setting_id
+            print "Valid settings are: %s" % ", ".join(self.scraper.settings.ids)
+        return
+
     ####################################################################
     #
     def cmd_lookup(self, query_str, result_set):
@@ -141,7 +172,7 @@ class CommandProcessor(object):
     #
     def cmd_episode_details(self, ep):
         """
-        
+
         Arguments:
         - `episode`: Episode to get the extended details for.
         """
@@ -162,7 +193,7 @@ class CommandProcessor(object):
             print "  Actors:"
             for actor in ep.actors:
                 print "    %s" % actor.encode('ascii','xmlcharrefreplace')
-                
+
         return ep
 
 #############################################################################
@@ -202,12 +233,9 @@ def main():
     #
     cp = CommandProcessor(options.scraper, logger)
 
-    # Print out any settings that the scraper may have.
+    # Print out the current settings..
     #
-    for sid in cp.scraper.settings.ids:
-        print "Setting: %s(%s): %s" % \
-            (cp.scraper.settings.labels[sid], sid,
-             cp.scraper.settings.values[sid])
+    cp.cmd_settings()
 
     # We have a result state object that is used to hold the results
     # of various commands. This way successive commands can operate on the
@@ -257,6 +285,12 @@ def main():
             result_set = cp.cmd_details(lr, result_set)
 
 
+        elif command == "settings":
+            cp.cmd_settings()
+        elif command == "set":
+            (setting_name, sep, value) = rem.partition(" ")
+            value = value.strip()
+            cp.cmd_set_setting(setting_name, value)
         elif command == "dump":
             print "Result set: %s" % result_set.output()
         elif command == "reset":

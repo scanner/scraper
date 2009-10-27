@@ -1178,7 +1178,11 @@ class Settings(object):
         """
         if setting_id not in self.values:
             raise KeyError
-        self.values[setting_id] = value
+
+        if self.types[setting_id] == "bool":
+            self.values[setting_id] = (value.lower() == 'true')
+        else:
+            self.defaults[setting_id] = value
         return
 
     ##################################################################
@@ -1295,7 +1299,7 @@ class Scraper(object):
 
         Arguments:
         - `url`: A ScrapeURL object whose data we pass to the scraper to parse
-                 via the specified custom function 
+                 via the specified custom function
         """
 
         # We must have a custom function and poking this URL for its data
@@ -1314,7 +1318,7 @@ class Scraper(object):
         #
         self.parser.set_buffer(1, url_data)
         return self.parser.parse(url.function, self.settings)
-    
+
     ##################################################################
     #
     def custom_functions(self, functions):
@@ -1757,7 +1761,7 @@ class Scraper(object):
                     print "Details: %s" % details
                     if details:
                         getattr(movie_details, "fn_" + url.function)(details)
-            
+
             return movie_details
         else:
             return TVShowDetails(details, lookup_result, self)
