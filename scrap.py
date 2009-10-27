@@ -71,8 +71,14 @@ optional_re = re.compile(r"(.*)(\\\(.*\\2.*)\\\)(.*)", re.DOTALL)
 # Our re search for '!!!CLEAN!!!...!!!CLEAN!!!' and '!!!TRIM!!!...!!!TRIM!!!' bracketed
 # substrings.
 #
-clean_re = re.compile('!!!CLEAN!!!((?!!!!CLEAN!!!).*?)!!!CLEAN!!!',re.DOTALL)
+clean_re = re.compile(r'!!!CLEAN!!!((?!!!!CLEAN!!!).*?)!!!CLEAN!!!',re.DOTALL)
 trim_re = re.compile(r'!!!TRIM!!!((?!!!!TRIM!!!).*?)!!!TRIM!!!',re.DOTALL)
+
+# Our re for '$INFO[<foo>]' substitutions (where 'foo' is for now
+# going to be just alnum's. These are patterns in our output that are
+# replaced with the values of the settings for a specific scraper.
+#
+setting_re = re.compile(r'\$INFO\[(\w+)]')
 
 ##################################################################
 ##################################################################
@@ -282,7 +288,7 @@ class ScrapeURL(object):
 
     ##################################################################
     #
-    def __init__(self, url, cache = { }, base_url = None):
+    def __init__(self, url, cache = { }, base_url = None, settings = None):
         """
         We can be called with `url` being a string or a dom element
         node. In the later case we need to parse the element node.
@@ -315,25 +321,25 @@ class ScrapeURL(object):
         # url.
         #
         if self.base_url and self.url != "" and self.url[0:4].lower() != "http":
-            print "Augmenting url '%s' with base url: %s" % (self.url,
-                                                             self.base_url)
             self.url = self.base_url + self.url
-
-        # XXX Hack hack.. some URL's have strings for which I can not find
-        #     the reference for, but I knwo what some of them should
-        #     be.. there is '$INFO[url]' which.. we are going to assume
-        #     should be 'imdb.com'
-        #
-        #     I wish I knew where the value of this variable came from. wtf.
-        #
-        self.url = self.url.replace("$INFO[url]","imdb.com")
-
-        # XXX should probably have you define the language when you create the
-        #     scraper parser.
-        #
-        self.url = self.url.replace("$INFO[language]","en")
         return
 
+    ##################################################################
+    #
+    def __str__(self):
+        result = ["<ScrapeURL, url: %s" % self.url]
+        if self.use_post:
+            result.append("use_post: %s" % self.use_post)
+        if self.spoof_url:
+            result.append("spoof_url: %s" % self.spoof_url)
+        if self.cache_key:
+            result.append("cache: %s" % self.cache_key)
+        if self.function:
+            result.append("function: %s" % self.function)
+
+        result.append(">")
+        return " ".join(result)
+    
     ##################################################################
     #
     def get(self):
@@ -386,7 +392,6 @@ class ScrapeURL(object):
         #
         f = urllib2.urlopen(req)
         content_type = f.info()['Content-Type'].lower()
-#        print "info content type is is: %s" % content_type
 
         # Based on the content type we need to deal with the response
         # in various ways, like unzip, or re-encoding as ascii.
@@ -403,9 +408,7 @@ class ScrapeURL(object):
             stringy = StringIO(f.read())
             z = zipfile.ZipFile(stringy, 'r')
             members = z.namelist()
-#             print "Members of zip file: %s" % repr(members)
             for member in members:
-#                 print "Extracted %s from %s" % (member,f.geturl())
                 result.append(z.read(member))
             z.close()
             stringy.close()
@@ -469,26 +472,6 @@ class ScrapeURL(object):
             dom = None
         except ExpatError:
             self.url = xml_url
-        return
-
-##################################################################
-##################################################################
-#
-class Entity(object):
-    """
-    An entity is some media content (tv show, movie, etc.) we have or we wish
-    to look up the information for.
-    """
-
-    ##################################################################
-    #
-    def __init__(self):
-        """
-        """
-        self.have_details = False
-        self.have_lookup_data = False
-        self.content_type = None
-        self.scraper = None
         return
 
 ##################################################################
@@ -631,21 +614,25 @@ class ScraperParser(object):
         self.logger.debug("replace_buffers: after replace: '%s'" % result)
         result = result.replace(r'\\n', '\n')
 
-        # XXX I have no idea where $INFO[url] turns in to 'imdb.com'
-        #     somewhere inside xbmc/plex I am sure..
-        #     I wish I knew where the value of this variable came from. wtf.
+        # And replace our $INFO[<foo>] matches with their settings value.
         #
-        # Probably should have an 'info' dict set (with defaults) when
-        # you create the parser.
-        #
-        result = result.replace("$INFO[url]","imdb.com")
-        result = result.replace("$INFO[language]","en")
+        result = setting_re.sub(self.replace_setting, result)
+
+#         # XXX I have no idea where $INFO[url] turns in to 'imdb.com'
+#         #     somewhere inside xbmc/plex I am sure..
+#         #     I wish I knew where the value of this variable came from. wtf.
+#         #
+#         # Probably should have an 'info' dict set (with defaults) when
+#         # you create the parser.
+#         #
+#         result = result.replace("$INFO[url]","imdb.com")
+#         result = result.replace("$INFO[language]","en")
 
         return result
 
     ##################################################################
     #
-    def check_condition(self, element, settings = None):
+    def check_condition(self, element):
         """
         <RegExp> statements may have a 'conditional' attribute. This attribute
         is a test we need to apply to see if we should or should not evaluate
@@ -660,8 +647,6 @@ class ScraperParser(object):
 
         Arguments:
         - `element`: The element we are checking the conditional attribute of
-        - `settings`: The object containing all of our settings. If it is None
-                      then all of the settings we query will default to False.
         """
         conditional = element.getAttribute("conditional")
 
@@ -670,23 +655,50 @@ class ScraperParser(object):
         if len(conditional) == 0:
             return True
 
-
-        print "Checking condition: %s" % conditional
-
         # We have a conditional. See if it begins with a '!', which inverts
         # our test.
         #
         result = True
+        oc = conditional
         if conditional[0] == '!':
             result = False
             conditional = conditional[1:]
 
-        if settings is not None and conditional in settings.ids:
-            print "Have conditional in settings, value; %s" % settigns.value(conditional)
-            if settings.value(conditional) is True:
+        if self.settings is not None and conditional in self.settings.ids:
+            if self.settings.value(conditional) is True:
                 return result
             return not result
         return not result
+
+    ##################################################################
+    #
+    def replace_setting(self, matchobj):
+        """
+        This method is intended to be called as an argument to the
+        regular expression object's 'sub()' method.
+        
+        After we have run our data through the regular expression
+        parser which builds up an XML string to return to our caller
+        we need to resolve any variable references that are in the
+        string.
+
+        ie: where '$INFO[<foo>]' appears in the input string we
+        replace with the value of the setting '<foo>' from our
+        settings.
+
+        If we come across a $INFO[<foo>] not in our settings we will
+        raise a KeyError.
+
+        NOTE: It is arguable that in production we should just stick
+              an empty string in place of settings we do not have.
+        
+        Arguments:
+        - `matchobj`: The re matchobj that matches our pattern
+        """
+        # If the first (and only) match group contains the name of the
+        # setting that is going to provide the value to replace.
+        #
+        return self.settings.values[matchobj.group(1)]
 
     ##################################################################
     #
@@ -759,11 +771,12 @@ class ScraperParser(object):
             return
         if expression.firstChild:
             str_expression = expression.firstChild.data
-            # XXX should probably have you define the language when
-            #     you create the scraper parser.
-            #
-            str_expression = str_expression.replace("$INFO[language]","en")
-
+            str_expression = setting_re.sub(self.replace_setting,
+                                             str_expression)
+#             # XXX should probably have you define the language when
+#             #     you create the scraper parser.
+#             #
+#             str_expression = str_expression.replace("$INFO[language]","en")
         else:
             str_expression = "(.*)"
 
@@ -898,7 +911,7 @@ class ScraperParser(object):
 
     ##################################################################
     #
-    def parse_regexp(self, regexp_elt, settings = None):
+    def parse_regexp(self, regexp_elt):
         """
 
         Arguments:
@@ -923,7 +936,7 @@ class ScraperParser(object):
 
             # We skip regexp's whose condition does not evaluate to True
             #
-            if self.check_condition(regexp_elt, settings):
+            if self.check_condition(regexp_elt):
                 # If this element has a child <RegExp> element, then loop
                 # over it and its sibling <RegExp> elements, performing a
                 # depth-first parsing of <RegExp> elements.
@@ -957,6 +970,8 @@ class ScraperParser(object):
         Arguments:
         - `tag_name`: The name of the tag we wish to parse.
         """
+        self.settings = settings
+
         child_element = first_child(self.doc, tag_name)
         if child_element is None:
             raise BadXML("No such tag <%s>" % tag_name)
@@ -972,7 +987,7 @@ class ScraperParser(object):
         #       printout how deep we are in nested <regexp>'s.
         #
         self.regexp_level = 0
-        self.parse_regexp(first_child(child_element, "RegExp"), settings)
+        self.parse_regexp(first_child(child_element, "RegExp"))
 
         # our return result is the contents of the parameter buffer.
         # We clear the buffers after we are done our work.
@@ -985,8 +1000,8 @@ class ScraperParser(object):
 #         if child_element.getAttribute("clearbuffers").lower() != "no":
 #             self.clear_buffers()
         self.clear_buffers()
+        result = setting_re.sub(self.replace_setting, result)
         self.logger.debug("parse, 2nd check tag <%s>, result: '%s'" % (tag_name,result))
-
         return result
 
     ##################################################################
@@ -1115,6 +1130,14 @@ class Settings(object):
         self.defaults["override"] = False
         self.labels["override"] = "Language Override"
 
+        # The default language for now is english!
+        #
+        self.ids.append("language")
+        self.values["language"] = "en"
+        self.types["language"] = "string"
+        self.defaults["language"] = "en"
+        self.labels["language"] = "Language"
+        
         dom = parseString(settings_xml)
         s = dom.firstChild
 
@@ -1750,17 +1773,21 @@ class Scraper(object):
         #
         if self.parser.content == "movies":
             movie_details = MovieDetails(details, lookup_result, self)
+
             # The movie details may have custom functions. If our MovieDetails
             # object has a method to deal with the results of a specific
             # custom function, then invoke the custom function on the scraper
-            # then invoke that method on the MovieDetails object
+            # then invoke that method on the MovieDetails object.
             #
+            print "Custom functions: "
             for url in movie_details.urls:
+                details = self.custom_function(url)
+                if details is None:
+                    continue
                 if url.function and hasattr(movie_details, "fn_"+url.function):
-                    details = self.custom_function(url)
-                    print "Details: %s" % details
-                    if details:
-                        getattr(movie_details, "fn_" + url.function)(details)
+                    getattr(movie_details, "fn_" + url.function)(details)
+                else:
+                    print "Skipping %s, %s" % (str(url), details)
 
             return movie_details
         else:
@@ -1933,10 +1960,19 @@ class MovieDetails(ShowDetails):
         self.rating = None
         self.votes = None
         self.genres = []
+        self.directors = []
+        self.writers = []
         self.studio = ''
         self.outline = ''
         self.plot = ''
+        self.posters = [] # List of URLs of poster images.
 
+        # This is the list ScrapeURL's that represent custom functions
+        # of further data to lookup. These, in turn, when parsed, may
+        # in turn yield more custom functions to lookup more data.
+        #
+        self.urls = []
+        
         # Further lookups for this item may only give us partial URL's
         # We take the first lookup detail link's url and use that as a
         # base url for further lookups.
@@ -1967,7 +2003,7 @@ class MovieDetails(ShowDetails):
         self.studio = get_child_data(ep, "studio", "")
         self.outline = get_child_data(ep, "outline", "")
         self.plot = get_child_data(ep, "plot", "")
-        self.urls = []
+
         url = first_child(ep, "url")
         while url:
             self.urls.append(ScrapeURL(url, cache = self.scraper.cache,
@@ -1984,6 +2020,9 @@ class MovieDetails(ShowDetails):
         """
         The handler for the 'GetMoviePlot' scraper custom function.
 
+        This updates any existing 'plot' we have with the more full
+        details one.
+
         Arguments:
         - `details`: XML 'GetMoviePlot' custom function results
         """
@@ -1994,7 +2033,10 @@ class MovieDetails(ShowDetails):
         if details is None:
             return
 
-        print "GetMoviePlot details: %s" % details
+        dom = parseString(details)
+        d = dom.firstChild
+        self.plot = get_child_data(d, "plot", self.plot)
+        dom.unlink()
 
     ##################################################################
     #
@@ -2030,7 +2072,13 @@ class MovieDetails(ShowDetails):
         if details is None:
             return
 
-        print "GetMovieDirectors details: %s" % details
+        dom = parseString(details)
+        e = dom.firstChild
+        director = first_child(e, "director")
+        while director:
+            self.directors.append(director.firstChild.data)
+            director = next_sibling(director, "director")
+        dom.unlink()
 
     ##################################################################
     #
@@ -2048,14 +2096,21 @@ class MovieDetails(ShowDetails):
         if details is None:
             return
 
-        print "GetMovieWriters details: %s" % details
+        dom = parseString(details)
+        e = dom.firstChild
+        credit = first_child(e, "credits")
+        while credit:
+            self.writers.append(credit.firstChild.data)
+            credit = next_sibling(credit, "credits")
+        dom.unlink()
+        return
 
     ##################################################################
     #
     def fn_GetIMDBPoster(self, details):
         """
         The handler for the 'GetIMDBPoster' scraper custom function.
-
+        We expect <details><thumbs><thumb>..url..</thumb><thumbs></details>
         Arguments:
         - `details`: XML 'GetIMDBPoster' custom function results
         """
@@ -2066,7 +2121,17 @@ class MovieDetails(ShowDetails):
         if details is None:
             return
 
-        print "GetIMDBPoster details: %s" % details
+        dom = parseString(details)
+        e = dom.firstChild
+        thumbs = first_child(e, "thumbs")
+        if thumbs is None:
+            return
+        thumb = first_child(thumbs, "thumb")
+        while thumb:
+            self.posters.append(thumb.firstChild.data)
+            thumb = next_sibling(thumb, "thumb")
+        dom.unlink()
+        return
 
     ##################################################################
     #
@@ -2084,6 +2149,15 @@ class MovieDetails(ShowDetails):
             result.append("Votes: %s" % self.votes)
         if len(self.genres) > 0:
             result.append("Genres: %s" % ", ".join(self.genres))
+        if len(self.directors) > 0:
+            result.append("Directors: %s" % ", ".join(self.directors))
+        if len(self.writers) > 0:
+            result.append("Writers: %s" % ", ".join(self.writers))
+        if len(self.posters) > 0:
+            result.append("Poster URL's:")
+            for p in self.posters:
+                result.append("    %s" % p)
+            
         result.append("Studio: %s" % self.studio)
         result.append("Outline: %s" % self.outline)
         result.append("Plot: %s" % self.plot)
