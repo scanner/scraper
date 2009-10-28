@@ -288,14 +288,13 @@ class ScrapeURL(object):
 
     ##################################################################
     #
-    def __init__(self, url, cache = { }, base_url = None, settings = None):
+    def __init__(self, url, cache = { }, base_url = None):
         """
         We can be called with `url` being a string or a dom element
         node. In the later case we need to parse the element node.
 
         `url` - The url that this object wraps.
         """
-        print "Keys in URL cache: %s" % repr(cache.keys())
         self.base_url = base_url
         self.cache = cache
         self.use_post = False
@@ -353,12 +352,8 @@ class ScrapeURL(object):
         # If we have a cache_key, see if there is data under that key
         # in our url cache and use that if there is.
         #
-        if self.cache_key:
-            if self.cache_key in self.cache:
-                print "Using cached return value for key '%s'" % self.cache_key
-                return self.cache[self.cache_key]
-            else:
-                print "Did not find cached value for key '%s'" % self.cache_key
+        if self.cache_key and self.cache_key in self.cache:
+            return self.cache[self.cache_key]
 
         # If the actual URL is the empty string, and we did not have a cached
         # result for it, then we can not retrieve anything. Return None.
@@ -425,7 +420,6 @@ class ScrapeURL(object):
         f.close()
         if self.cache_key:
             self.cache[self.cache_key] = result
-            print "Set url cache for key '%s'" % self.cache_key
         return result
 
     ##################################################################
@@ -1336,16 +1330,19 @@ class Scraper(object):
         - `entity`: The entity that will parse the results of our custom
                     functions.
         """
+        self.logger.debug("custom_function: '%s' entering" % url.function)
 
         # We must have a custom function and poking this URL for its data
         # must return some data in order for us to bother trying to parse
         # the data.
         #
         if url.function is None:
+            self.logger.debug("custom_function: '%s' leaving" % url.function)
             return None
 
         url_data = url.get()
         if url_data is None:
+            self.logger.debug("custom_function: '%s' leaving" % url.function)
             return None
 
         # As is usual with such things, the input data goes in to buffer
@@ -1354,81 +1351,33 @@ class Scraper(object):
         self.parser.set_buffer(1, url_data)
         details = self.parser.parse(url.function, self.settings)
 
-        if details is None:
+        if details is None or details == "":
+            self.logger.debug("custom_function: '%s' leaving" % url.function)
             return
 
         dom = parseString(details)
-        d = details.firstChild
+        d = dom.firstChild
 
         # See if our entity knows how to deal with the results of this
         # custom function.
         #
-        if hasattr(entity, "fn_" + url.function):
+        if entity and hasattr(entity, "fn_" + url.function):
             getattr(entity, "fn_" + url.function)(details)
+        else:
+            print "Entity did not support custom function '%s'" % url.function
 
         # Now see if we have any custom functions in our results.. if we
         # do, recurse for each one we find.
         #
         u = first_child(d, "url")
         while u:
-            self.custom_function(u, entity)
+            sub_url = ScrapeURL(u, cache = self.cache)
+            self.custom_function(sub_url, entity)
             u = next_sibling(u, "url")
             
         dom.unlink()
+        self.logger.debug("custom_function: '%s' leaving" % url.function)
         return
-
-    ##################################################################
-    #
-    def custom_functions(self, functions):
-        """
-        We are given the XML document that contains a custom function to be
-        run.
-
-        Arguments:
-        - `functions`: a string that is the XML document that defines a
-                       custom function
-        """
-        self.logger.debug("custom_functions: entering")
-        try:
-            dom = parseString(functions)
-        except xml.parsers.expat.ExpatError:
-            self.logger.error("custom_functions: Malformed xml input: "
-                              "%s" % functions)
-            self.logger.error("custom_functions: skipping")
-            return []
-
-        url = first_child(dom, "url")
-        results = []
-        while url:
-            if url.attributes and url.hasChildNodes():
-                function = url.getAttribute("function")
-                if len(function) > 0:
-                    file_name_html = "%s.html" % function
-                    src_url = ScrapeURL(url, cache = self.cache)
-                    self.logger.debug("custom_functions: function: %s, "
-                                      "retrieving %s" % (function, src_url.url))
-                    url_result = src_url.get()
-                    with open(file_name_html, "w") as f:
-                        f.write(url_result)
-
-                    self.parser.set_buffer(1, url_result)
-                    custom_result = self.parser.parse(function, self.settings)
-
-                    # XXX debugging output
-                    #
-                    self.logger.debug("custom_functions: writing data to %s " \
-                                      % "%s.xml" % function.lower())
-                    with open("%s.xml" % function.lower(), "w") as f:
-                        f.write(custom_result)
-
-                    # And then we recurse, but calling outselves with the
-                    # output of the parser on our previous input.
-                    #
-                    results.append(self.custom_functions(custom_result))
-
-            url = next_sibling(url, "url")
-        self.logger.debug("custom_functions: leaving")
-        return results
 
     ##################################################################
     #
@@ -1470,13 +1419,6 @@ class Scraper(object):
         self.parser.set_buffer(1,search_string)
         url = self.parser.parse(FN_CREATE_SEARCH_URL, self.settings)
 
-        # XXX We write out these files as we go through this step by step
-        #     but for our use I think this will serve no purpose beyond
-        #     debugging and we will be able to remove this.
-        #
-        with open("url.xml", "w") as f:
-            f.write(url)
-
         return url
 
     ##################################################################
@@ -1493,12 +1435,6 @@ class Scraper(object):
         self.logger.debug("get_search_results: downloading %s" % src_url.url)
         url_data = src_url.get()
 
-        # XXX I think we only need this file for debugging. Eventually
-        #     we will just remove this output statement.
-        #
-        with open("results.html", "w") as f:
-            f.write(url_data)
-
         # We pass the page we got from the url, and the url itself into
         # our scaper parser as buffer parameters 1 & 2.
         #
@@ -1508,13 +1444,6 @@ class Scraper(object):
         # Parse the <GetSearchResults> tag from our XML definition.
         #
         search_results = self.parser.parse(FN_GET_SEARCH_RESULTS, self.settings)
-
-        # XXX I think we only need this file for debugging. Eventually
-        #     we will just remove this output statement.
-        #
-        with open("results.xml", "w") as f:
-            f.write(search_results)
-
         return search_results
 
     ##################################################################
@@ -1993,7 +1922,9 @@ class MovieDetails(ShowDetails):
         self.studio = ''
         self.outline = ''
         self.plot = ''
-        self.posters = [] # List of URLs of poster images.
+        self.fanart = []   # List of URLs of fanart images.
+        self.posters = []  # List of URLs of poster images.
+        self.trailers = [] # List of URLs of trailers.
 
         # This is the list ScrapeURL's that represent custom functions
         # of further data to lookup. These, in turn, when parsed, may
@@ -2044,6 +1975,75 @@ class MovieDetails(ShowDetails):
 
     ##################################################################
     #
+    def fn_GetTMDBFanart(self, details):
+        """
+        The handle for fanart.. <details><fanart url='..'><thumb>...
+        
+        Arguments:
+        - `details`: XML 'GetTMDBFanart' custom function result
+        """
+        if details is None:
+            return
+
+        dom = parseString(details)
+        d = dom.firstChild
+        
+        fanart = first_child(d, "fanart")
+        if fanart is None:
+            return
+
+        # The 'url' attribute of the <fanart> tag is the base url for the
+        # poster images and their previews. We do not store that, we just
+        # construct the full urls.
+        #
+        url_base = fanart.getAttribute("url")
+
+        self.fanart = []
+        
+        thumb = first_child(fanart, "thumb")
+        while thumb:
+            self.fanart.append(url_base + thumb.firstChild.data)
+            thumb = next_sibling(thumb, "thumb")
+
+        dom.unlink()
+        return
+
+    ##################################################################
+    #
+    def fn_GetTrailer(self, details):
+        """
+        Get the URL for the trailer.
+
+        We expect: <details><trailer>..url..</trailer></details>
+
+        <trailer> may have an attribute 'urlencoded'. If yes, then the
+        trailer URL passed to us is URL encoded.
+
+        Arguments:
+        - `details`: XML string we parse for the trailer details.
+        """
+
+        if details is None:
+            return
+
+        dom = parseString(details)
+        d = dom.firstChild
+
+        self.trailers = []
+
+        trailer = first_child(d, "trailer")
+        while trailer:
+            url = trailer.firstChild.data
+            if trailer.getAttribute("urlencoded").lower() == "yes":
+                url = urllib.unquote(url)
+            self.trailers.append(url)
+            trailer = next_sibling(trailer, "trailer")
+
+        dom.unlink()
+        return
+    
+    ##################################################################
+    #
     def fn_GetMoviePlot(self, details):
         """
         The handler for the 'GetMoviePlot' scraper custom function.
@@ -2081,7 +2081,6 @@ class MovieDetails(ShowDetails):
         #
         if details is None:
             return
-
         print "GetMovieCast details: %s" % details
 
     ##################################################################
@@ -2184,6 +2183,14 @@ class MovieDetails(ShowDetails):
         if len(self.posters) > 0:
             result.append("Poster URL's:")
             for p in self.posters:
+                result.append("    %s" % p)
+        if len(self.fanart) > 0:
+            result.append("Fanart URL's:")
+            for p in self.fanart:
+                result.append("    %s" % p)
+        if len(self.trailers) > 0:
+            result.append("Trailers URL's:")
+            for p in self.trailers:
                 result.append("    %s" % p)
             
         result.append("Studio: %s" % self.studio)
