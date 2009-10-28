@@ -1115,23 +1115,6 @@ class Settings(object):
         self.defaults = { }
         self.labels = { }
 
-        # There is always an 'override' setting - "override", which is
-        # set based on the Language Override setting in the scraper.
-        #
-        self.ids.append("override")
-        self.values["override"] = False
-        self.types["override"] = "bool"
-        self.defaults["override"] = False
-        self.labels["override"] = "Language Override"
-
-        # The default language for now is english!
-        #
-        self.ids.append("language")
-        self.values["language"] = "en"
-        self.types["language"] = "string"
-        self.defaults["language"] = "en"
-        self.labels["language"] = "Language"
-        
         dom = parseString(settings_xml)
         s = dom.firstChild
 
@@ -1163,6 +1146,26 @@ class Settings(object):
 
         dom.unlink()
         dom = None
+
+        # There is always an 'override' setting - "override", which is
+        # set based on the Language Override setting in the scraper.
+        #
+        if 'override' not in self.ids:
+            self.ids.append("override")
+            self.values["override"] = False
+            self.types["override"] = "bool"
+            self.defaults["override"] = False
+            self.labels["override"] = "Language Override"
+
+        # The default language for now is english!
+        #
+        if 'language' not in self.ids:
+            self.ids.append("language")
+            self.values["language"] = "en"
+            self.types["language"] = "string"
+            self.defaults["language"] = "en"
+            self.labels["language"] = "Language"
+
         return
 
     ##################################################################
@@ -2219,7 +2222,7 @@ class TVShowDetails(ShowDetails):
         self.plot = ''
         self.genres = []
         self.thumbs = []
-        self.fanart = None
+        self.fanart = []
         self.episode_guide_urls = []
 
         dom = parseString(details)
@@ -2237,10 +2240,22 @@ class TVShowDetails(ShowDetails):
             genre = next_sibling(genre, "genre")
 
 #         thumbs = first_child(ep, "thumbs")
+
         fanart = first_child(ep, "fanart")
         if fanart:
-            self.fanart_url = fanart.getAttribute("url")
-            # XXX... need some examples to know what else to put here.
+            # The 'url' attribute of the <fanart> tag is the base url for the
+            # poster images and their previews. We do not store that, we just
+            # construct the full urls.
+            #
+            url_base = fanart.getAttribute("url")
+
+            self.fanart = []
+
+            thumb = first_child(fanart, "thumb")
+            while thumb:
+                self.fanart.append(url_base + thumb.firstChild.data)
+                thumb = next_sibling(thumb, "thumb")
+
         episodeguide = first_child(ep, "episodeguide")
         if episodeguide:
             url = first_child(episodeguide, "url")
