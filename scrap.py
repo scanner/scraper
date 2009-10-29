@@ -392,8 +392,7 @@ class ScrapeURL(object):
         # in various ways, like unzip, or re-encoding as ascii.
         #
         if content_type == "application/zip":
-            # In zip files we extract all the individual files and return them
-            # as a list (in the same order in which they were in the zip file.)
+            # In zip files we extract all the individual files.
             #
             # NOTE: Since the zipfile.ZipFile class needs a file like object
             #       with the 'seek()' method we use a StringIO to hold
@@ -407,8 +406,19 @@ class ScrapeURL(object):
                 result.append(z.read(member))
             z.close()
             stringy.close()
+
+            # The way the scraper wants to work is that it gets all parts
+            # of such a zip file as a single string.. so join them all
+            # together (separated by a newline character, just because.)
+            #
+            result = "\n".join(result)
         elif content_type[0:9] == "text/xml;":
             ign,charset = content_type.split('=')
+
+            # XXX We should just return what we get and not encode it as
+            #     ascii. The end point should encode if it only wants to
+            #     see a string... (or maybe we SHOULD do this..)
+            #
             result = f.read().decode(charset).encode("ascii",
                                                      "xmlcharrefreplace")
         else:
@@ -1655,11 +1665,6 @@ class Scraper(object):
         for url in show.episode_guide_urls:
             self.logger.debug("get_episode_list, data from: %s" % url.url)
             url_data = url.get()
-            # XXX Maybe we should just not return a list because we only use
-            #     the first element.
-            #
-            if hasattr(url_data, '__iter__'):
-                url_data = url_data[0]
 
             # Now we run the GetEpisodeList rules on this data that
             # we just retrieved.
@@ -1706,24 +1711,7 @@ class Scraper(object):
             link_data = link.get()
             self.logger.debug("get_details: retrieved data from %s" \
                                   % link.url)
-            # If we get back an object with an iterator then we loop over the
-            # elements in our src data, putting successive one in successive
-            # buffers (some url's return several parts zipped up as a
-            # multipart.)
-            #
-            # XXX but wait.. at least tvdb.xml seems to expect the ID in
-            #     buffer #2, so maybe only the first item goes here.
-            #
-            if hasattr(link_data, '__iter__'):
-                self.parser.set_buffer(i, link_data[0])
-#                 for j,data in enumerate(link_data):
-#                     self.parser.set_buffer(i+j, data)
-#                 i += j
-            else:
-                # Otherwise, we just drop the link data in to the next
-                # available buffer.
-                #
-                self.parser.set_buffer(i, link_data)
+            self.parser.set_buffer(i, link_data)
 
         # And in the final buffer we set the id. The scraper we have
         # loaded knows how many bits of url data it expects and in which
@@ -1867,6 +1855,16 @@ class LookupResult(object):
             if link:
                 self.links.append(ScrapeURL(link))
 
+    ##################################################################
+    #
+    def __str__(self):
+        return self.title.data.encode("ascii","xmlcharrefreplace")
+
+    ##################################################################
+    #
+    def __unicode__(self):
+        return self.title
+    
 ##################################################################
 ##################################################################
 #
