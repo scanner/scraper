@@ -130,7 +130,7 @@ class CommandProcessor(object):
             print "Found %d results for query '%s'" % (len(results), query_str)
             for i,r in enumerate(results):
                 print "%02d: %s" % (i+1, r.title)
-            result_set.lookup_results.extend(results)
+            result_set.lookup_results = results
         return result_set
 
     ##################################################################
