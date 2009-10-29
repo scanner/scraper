@@ -2237,7 +2237,21 @@ class TVShowDetails(ShowDetails):
                 self.genres.append(genre.firstChild.data)
             genre = next_sibling(genre, "genre")
 
-#         thumbs = first_child(ep, "thumbs")
+        # Thumbs have not only url's, but they can have informative attributes
+        # so we store this data all as a Dict.. it will always at least have
+        # the 'url' key.
+        #
+        thumbs = first_child(ep, "thumbs")
+        if thumbs:
+            thumb = first_child(thumbs, "thumb")
+            while thumb:
+                td = { "url" : thumb.firstChild.data }
+                attrs = thumb.attributes
+                for i in range(0,attrs.length):
+                    attr = attrs.item(i)
+                    td[attr.name] = attr.value
+                self.thumbs.append(td)
+                thumb = next_sibling(thumb, "thumb")
 
         fanart = first_child(ep, "fanart")
         if fanart:
