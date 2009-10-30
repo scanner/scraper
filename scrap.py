@@ -201,7 +201,7 @@ def try_float(data):
 
 ####################################################################
 #
-def try_url(data):
+def try_url(data, cache = None, base_url = None):
     """
     Like try_int() and try_float() except this tries to convert the
     string in to a URL object. If that fails it returns None.
@@ -211,7 +211,7 @@ def try_url(data):
     """
     if data is None:
         return data
-    return ScrapeURL(data)
+    return ScrapeURL(data, cache = cache, base_url = base_url)
 
 ####################################################################
 #
@@ -1651,7 +1651,7 @@ class Scraper(object):
         filled in.
 
         Arguments:
-        - `show`: The TVShowDetails object to get the episode list for.
+        - `show`: The Series object to get the episode list for.
         """
 
         # If the show has no episode guide url's, then there is nothing
@@ -1694,7 +1694,7 @@ class Scraper(object):
         Get the details for the show contained in the 'lookup_result'
         we are passed.
 
-        We return a ShowDetails object.
+        We return a Show object.
 
         Arguments:
         - `lookup_result`: The LookupResult we are getting details for.
@@ -1720,26 +1720,26 @@ class Scraper(object):
         self.logger.debug("get_details: Setting buffer %d to lookup id %s" % \
                               (i+1, lookup_result.id))
         self.parser.set_buffer(i+1, lookup_result.id)
-        self.logger.debug("get_details: calling GetDetails parser")
+        self.logger.debug("get_details: calling Get parser")
         details = self.parser.parse(FN_GET_DETAILS, self.settings)
 
         # If this is a 'movie' type lookup, then we pass these details
         # in to the custom function processor to suss out the movie's details
         #
         if self.parser.content == "movies":
-            movie_details = MovieDetails(details, lookup_result, self)
+            movie_details = Movie(details, lookup_result, self)
 
-            # The movie details may have custom functions. If our MovieDetails
+            # The movie details may have custom functions. If our Movie
             # object has a method to deal with the results of a specific
             # custom function, then invoke the custom function on the scraper
-            # then invoke that method on the MovieDetails object.
+            # then invoke that method on the Movie object.
             #
             for url in movie_details.urls:
                 self.custom_function(url, movie_details)
 
             return movie_details
         else:
-            return TVShowDetails(details, lookup_result, self)
+            return Series(details, lookup_result, self)
 
     ##################################################################
     #
@@ -1864,54 +1864,115 @@ class LookupResult(object):
     #
     def __unicode__(self):
         return self.title
+
+    ##################################################################
+    #
+    def get_details(self):
+        """
+        Fetch the actual details for the movie or series that this LookupResult
+        represents. This is really just a wrapper around the scraper's
+        'get_details' method.
+        """
+        
+    
     
 ##################################################################
 ##################################################################
 #
-class ShowDetails(object):
+class Show(object):
     """
     Abstract base class for movie and tv show details. They both have some
     similar methods so might as well make them share a parent base class.
+
+    All Series and Movies have at least a title and the links to lookup the
+    rest of the show's details.
     """
 
     ##################################################################
     #
-    def __init__(self, details, lookup_result, scraper):
+    def __init__(self, lookup_result, scraper):
         """
+        This is basically an abstract base class of both Movie and Series.
         Arguments:
-        - `details`: XML string with the details of this show.
-        - `lookup_result`: The LookupResult object used to get these details
-        - `scraper`: The scraper also used to get these details
+        - `lookup_result`: The Dom node that has the lookup info for a
+                           specific show.
+        - `scraper`: The scraper used to get these details
         """
-        self.details = details
-        self.lookup_result = lookup_result
         self.scraper = scraper
+        self.title = ""
+        self.id = None
+        self.links = []
+
+        self.title = get_child_data(lookup_result, "title", "")
+        self.id = get_child_data(lookup_result, "id", None)
+
+        link = first_child(lookup_result, "url")
+        while link:
+            self.links.append(ScrapeURL(link, cache = scraper.cache))
+            link = next_sibling(link, "url")
+        return
 
     ##################################################################
     #
     def __str__(self):
-        """
-        return our details as some pretty string.
-        """
-        raise NotImplementedError
+        return self.title.encode("ascii","xmlcharrefreplace")
 
+    ##################################################################
+    #
+    def __unicode__(self):
+        return self.title
+
+    ##################################################################
+    #
+    def get_details(self):
+        """
+        Stub function for the sub-classes to implement.
+        It does the basic invoking of the parser on the data we have
+        so far. Subclasses will need to extend this method to get the
+        rest of the salient details.
+        """
+        # For every URL in our list of links that we got from the parser's
+        # 'lookup()' method we get the data from that URL, set it in our
+        # parser's buffer, and then let the parser do the rest of the work.
+        #
+        i = 0
+        for i,link in enumerate(self.links):
+            # NOTE: Buffers are 1-based, not 0-based.
+            #
+            link_data = link.get()
+            self.parser.set_buffer(i+1, link_data)
+
+        # And in the final buffer we set the id. The scraper we have
+        # loaded knows how many bits of url data it expects and in which
+        # buffer the id will be in.
+        #
+        self.parser.set_buffer(i+1, self.id)
+        self.xml_details = self.parser.parse(FN_GET_DETAILS, self.settings)
+    
 ##################################################################
 ##################################################################
 #
-class MovieDetails(ShowDetails):
+class Movie(Show):
     """
+    A Movie object. As differentiated from a 'Series' object by the scraper we
+    are using which tells us if it works on movies or tv shows (aka series.)
     """
 
     ##################################################################
     #
-    def __init__(self, details, lookup_result, scraper):
+    def get_details(self):
         """
-        `details` is a string with the XML 'details' results for a movie
-        in it. We parse out these details and set attributes based on them.
+        Before 'get_details' is invoked this Movie object is mostly an empty
+        shell. All it has is the title, maybe an id, and one or more URL's that
+        will let us resolve the rest of the object.
         """
-        super(MovieDetails, self).__init__(details, lookup_result, scraper)
-        self.id = None
-        self.title = ''
+        # The basic details are put sussed out by our super class
+        # method and put in 'self.xml_details'
+        #
+        super(Movie, self).get_details()
+
+        # And now we get the rest of the details
+        #
         self.year = ''
         self.certifications = []
         self.runtime = None
@@ -1937,13 +1998,16 @@ class MovieDetails(ShowDetails):
         # We take the first lookup detail link's url and use that as a
         # base url for further lookups.
         #
-        self.base_url = self.lookup_result.links[0].url
+        self.base_url = self.links[0].url
 
-        dom = parseString(details)
+        # And here we parse the information that was in the XML response the
+        # parser gave us.
+        #
+        dom = parseString(self.xml_details)
         ep = dom.firstChild
 
-        self.id = get_child_data(ep, "id")
-        self.title = get_child_data(ep, "title", "")
+        self.id = get_child_data(ep, "id", self.id)
+        self.title = get_child_data(ep, "title", self.title)
         self.year = try_int(get_child_data(ep, "year"))
 
         certification = first_child(ep, "certification")
@@ -1964,14 +2028,30 @@ class MovieDetails(ShowDetails):
         self.outline = get_child_data(ep, "outline", "")
         self.plot = get_child_data(ep, "plot", "")
 
+        # Now we are done with the 'simple' stuff out of the XML response
+        # we got from the parser. Next we loop through any "custom function"
+        # URL's. These are recursive, and may also invoke back functions
+        # on this movie object to fill in even more specific nested information.
+        #
         url = first_child(ep, "url")
         while url:
             self.urls.append(ScrapeURL(url, cache = self.scraper.cache,
                                        base_url = self.base_url))
             url = next_sibling(url, "url")
 
+        # At this point we are finished parsing with this dom. minidom says we
+        # should still unlink it to be sure for it to be able to be GC'd. Ug.
+        #
         dom.unlink()
         dom = None
+
+        # XXX I am not sure there is any reason to store these URL's.
+        #     in the above loop perhaps we should just directly invoke
+        #     the parser on every URL as we come across it.
+        #
+        for url in self.urls:
+            self.custom_function(url, self)
+                
         return
 
     ##################################################################
@@ -2202,19 +2282,28 @@ class MovieDetails(ShowDetails):
 ##################################################################
 ##################################################################
 #
-class TVShowDetails(ShowDetails):
+class Series(Show):
     """
+    This object represents a series.. typically a TV series. It has some basic
+    information about the series, and then information about each episode in
+    the series.
     """
 
     ##################################################################
     #
-    def __init__(self, details, lookup_result, scraper):
+    def get_details(self):
         """
-        We need the scraper when dealing with tv show details so that we can
-        look up the episode list and episode details when asked for them.
+        Before 'get_details' is invoked this Series object is mostly an empty
+        shell. All it has is the title, maybe an id, and one or more URL's that
+        will let us resolve the rest of the object.
         """
-        super(TVShowDetails, self).__init__(details, lookup_result, scraper)
-        self.title = ''
+        # The basic details are put sussed out by our super class
+        # method and put in 'self.xml_details'
+        #
+        super(Series, self).get_details()
+
+        # And now we get the rest of the details
+        #
         self.premiered = None
         self.rating = None
         self.plot = ''
@@ -2223,13 +2312,27 @@ class TVShowDetails(ShowDetails):
         self.fanart = []
         self.episode_guide_urls = []
 
-        dom = parseString(details)
+        # Further lookups for this item may only give us partial URL's
+        # We take the first lookup detail link's url and use that as a
+        # base url for further lookups.
+        #
+        self.base_url = self.links[0].url
+
+        # XXX What we should probably do is make the Series object some sort of
+        #     iterable. This way you just iterate over the episodes to get them
+        #     or access them as indexed items. We can then delay the episode
+        #     guide lookup and individual episode lookups until they were
+        #     actually called for by the user.
+        #
+        self.episodes = []
+
+        dom = parseString(self.xml_details)
         ep = dom.firstChild
 
+        self.title = get_child_data(ep, "title", self.title)
         self.plot = get_child_data(ep, "plot", "")
         self.premiered = get_child_data(ep, "premiered")
         self.rating = try_float(get_child_data(ep, "rating"))
-        self.title = get_child_data(ep, "title", "")
 
         genre = first_child(ep, "genre")
         while genre:
@@ -2272,12 +2375,49 @@ class TVShowDetails(ShowDetails):
         if episodeguide:
             url = first_child(episodeguide, "url")
             while url:
-                self.episode_guide_urls.append(ScrapeURL(url,
-                                                         cache = scraper.cache))
+                self.episode_guide_urls.append(\
+                    ScrapeURL(url,cache = self.scraper.cache,
+                              base_url = self.base_url))
                 url = next_sibling(url, "url")
 
+        # And at this point we have parsed out all of the series specific
+        # data from our XML response, and also got a handle on where to get
+        # the episode information.
+        #
         dom.unlink()
         dom = None
+
+        # Now before we return pre-emptively fetch the episode list.
+        # XXX We _could_ put this in a 'get_episode_list' method that does the
+        #     fetching then.. but for now we are just going to have it done
+        #     here.
+        #
+        if len(self.episode_guide_urls) == 0:
+            return
+
+        for url in self.episode_guide_urls:
+            url_data = url.get()
+
+            # Now we run the GetEpisodeList rules on this data that
+            # we just retrieved.
+            #
+            self.parser.set_buffer(1, url_data)
+            self.parser.set_buffer(2, url.url)
+
+            # This gets us a XML string with the list of episodes in it.
+            # parse this in to a dom and then go through each <episode>
+            # element creating an Episode object to append to our episode
+            # list
+            ep_list_result = self.parser.parse(FN_GET_EPISODE_LIST,
+                                               self.settings)
+            dom = parseString(ep_list_result)
+            eps = dom.firstChild
+            ep = first_child(eps, "episode")
+            while ep:
+                self.episodes.append(Episode(ep, self, self.scraper))
+                ep = next_sibling(ep, "episode")
+            dom.unlink()
+        
         return
 
     ##################################################################
@@ -2298,14 +2438,19 @@ class TVShowDetails(ShowDetails):
     #
     def __str__(self):
         result = []
-        result.append("Title: %s" % self.title.encode('ascii', 'xmlcharrefreplace'))
+        result.append("Title: %s" % self.title.encode('ascii',
+                                                      'xmlcharrefreplace'))
         if self.premiered:
-            result.append("Premiered: %s" % self.premiered.encode('ascii', 'xmlcharrefreplace'))
+            result.append("Premiered: %s" % \
+                          self.premiered.encode('ascii', 'xmlcharrefreplace'))
         if len(self.genres) > 0:
-            result.append("Genres: %s" % (", ".join(self.genres)).encode('ascii', 'xmlcharrefreplace'))
+            result.append("Genres: %s" % \
+                          (", ".join(self.genres)).encode('ascii',
+                                                          'xmlcharrefreplace'))
         if self.rating:
             result.append("Rating: %s" % self.rating)
-        result.append("Plot: %s" % self.plot.encode('ascii', 'xmlcharrefreplace'))
+        result.append("Plot: %s" % self.plot.encode('ascii',
+                                                    'xmlcharrefreplace'))
         return "\n".join(result)
 
 ##################################################################
@@ -2328,14 +2473,15 @@ class Episode(object):
         self.details = episode.toxml("utf-8")
         self.series = series
         self.scraper = scraper
-        self.title = ""
         self.url = None
         self.episode_number = None
         self.season_number = None
         self.id = None
 
         self.title = get_child_data(episode, "title", "")
-        self.url = try_url(get_child_data(episode, "url"))
+        self.url = try_url(get_child_data(episode, "url"),
+                                          cache = self.scraper.cache,
+                                          base_url = self.series.base_url)
         self.episode_number = try_int(get_child_data(episode, "epnum"))
         self.season_number = try_int(get_child_data(episode, "season"))
         self.id = get_child_data(episode, "id")
@@ -2356,10 +2502,9 @@ class Episode(object):
 
     ##################################################################
     #
-    def set_details(self, ep_details):
+    def get_details(self):
         """
-        Given an XML string of more details about this episode, augment
-        our existing information with these details.
+        Augment our existing information with these details.
 
         NOTE: Some of the things we set were probably already set when
               we got the episode list, and it is likely that this is
@@ -2370,6 +2515,12 @@ class Episode(object):
         Arguments:
         - `details`: The XML string we parse for the details.
         """
+        url_data = episode.url.get()
+
+        self.parser.set_buffer(1, url_data)
+        self.parser.set_buffer(2, episode.id)
+        ep_details = self.parser.parse(FN_GET_EPISODE_DETAILS, self.settings)
+        
         self.extended_details = ep_details
         self.actors = []
         self.credits = []
@@ -2378,7 +2529,7 @@ class Episode(object):
         dom = parseString(ep_details)
         episode = dom.firstChild
 
-        self.title = get_child_data(episode, "title", "")
+        self.title = get_child_data(episode, "title", self.title)
         self.plot = get_child_data(episode, "plot")
         self.aired = get_child_data(episode, "aired")
         self.thumbnail = get_child_data(episode, "thumb")
