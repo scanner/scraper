@@ -129,7 +129,8 @@ class CommandProcessor(object):
         if len(results) > 0:
             print "Found %d results for query '%s'" % (len(results), query_str)
             for i,r in enumerate(results):
-                print "%02d: %s" % (i+1, r.title)
+                print "%02d: %s" % (i+1, r.title.encode('ascii',
+                                                        'xmlcharrefreplace'))
             result_set.lookup_results = results
         return result_set
 
@@ -142,12 +143,11 @@ class CommandProcessor(object):
         Arguments:
         - `show`: a lookup results item.
         """
-        results = self.scraper.get_details(show)
-        if results:
-            print "Details for '%s'" % show.title
-            print "%s\n" % str(results)
+        show.get_details()
+        print "Details for '%s'" % show.title
+        print "%s\n" % str(show)
 
-        result_set.details = results
+        result_set.details = show
         return result_set
 
     ##################################################################
@@ -160,12 +160,12 @@ class CommandProcessor(object):
         - `show`: A TVShowDetails object for which we are
                   going to get its episode list.
         """
-        results = self.scraper.get_episode_list(show)
-        show.episodes = results
-        if len(results) == 0:
+        if not isinstance(show, scrap.Series):
+            raise TypeError("%s is not a Series." % repr(show))
+        if len(show.episodes) == 0:
             print "No episode..."
             return
-        for i,ep in enumerate(results):
+        for i,ep in enumerate(show.episodes):
             print "%02d Episode: %s" % (i+1, str(ep))
 
     ##################################################################
@@ -176,7 +176,7 @@ class CommandProcessor(object):
         Arguments:
         - `episode`: Episode to get the extended details for.
         """
-        ep = self.scraper.get_episode_details(ep)
+        ep.get_details()
         print "Episode: %s" % str(ep)
         print "  Plot: %s" % ep.plot.encode('ascii','xmlcharrefreplace')
         print "  Aired: %s" % ep.aired
@@ -281,7 +281,7 @@ def main():
                     "%d" % num_lookup_results
                 continue
             lr = result_set.lookup_results[which]
-            print "Looking up details for: '%s'" % lr.title
+            print "Looking up details for: '%s'" % lr.title.encode('ascii', 'xmlcharrefreplace')
             result_set = cp.cmd_details(lr, result_set)
 
 

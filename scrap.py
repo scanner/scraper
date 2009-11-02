@@ -1687,59 +1687,60 @@ class Scraper(object):
             dom.unlink()
         return episode_list
 
-    ##################################################################
-    #
-    def get_details(self, lookup_result):
-        """
-        Get the details for the show contained in the 'lookup_result'
-        we are passed.
+#     ##################################################################
+#     #
+#     def get_details(self, lookup_result):
+#         """
+#         Get the details for the show contained in the 'lookup_result'
+#         we are passed.
 
-        We return a Show object.
+#         We return a Show object.
 
-        Arguments:
-        - `lookup_result`: The LookupResult we are getting details for.
-        """
+#         Arguments:
+#         - `lookup_result`: The Show (Series or Movie) we are getting
+#                            details for.
+#         """
 
-        # For every URL in our lookup result, get its data and set
-        # one of the parser buffer's based on it (starting at buffer 1.)
-        #
-        i = 0
-        for link in lookup_result.links:
-            # The buffers are 1-based, so we have to start at 1.
-            #
-            i += 1
-            link_data = link.get()
-            self.logger.debug("get_details: retrieved data from %s" \
-                                  % link.url)
-            self.parser.set_buffer(i, link_data)
+#         # For every URL in our lookup result, get its data and set
+#         # one of the parser buffer's based on it (starting at buffer 1.)
+#         #
+#         i = 0
+#         for link in lookup_result.links:
+#             # The buffers are 1-based, so we have to start at 1.
+#             #
+#             i += 1
+#             link_data = link.get()
+#             self.logger.debug("get_details: retrieved data from %s" \
+#                                   % link.url)
+#             self.parser.set_buffer(i, link_data)
 
-        # And in the final buffer we set the id. The scraper we have
-        # loaded knows how many bits of url data it expects and in which
-        # buffer the id will be in.
-        #
-        self.logger.debug("get_details: Setting buffer %d to lookup id %s" % \
-                              (i+1, lookup_result.id))
-        self.parser.set_buffer(i+1, lookup_result.id)
-        self.logger.debug("get_details: calling Get parser")
-        details = self.parser.parse(FN_GET_DETAILS, self.settings)
+#         # And in the final buffer we set the id. The scraper we have
+#         # loaded knows how many bits of url data it expects and in which
+#         # buffer the id will be in.
+#         #
+#         self.logger.debug("get_details: Setting buffer %d to lookup id %s" % \
+#                               (i+1, lookup_result.id))
+#         self.parser.set_buffer(i+1, lookup_result.id)
+#         self.logger.debug("get_details: calling Get parser")
+#         details = self.parser.parse(FN_GET_DETAILS, self.settings)
 
-        # If this is a 'movie' type lookup, then we pass these details
-        # in to the custom function processor to suss out the movie's details
-        #
-        if self.parser.content == "movies":
-            movie_details = Movie(details, lookup_result, self)
+#         # If this is a 'movie' type lookup, then we pass these details
+#         # in to the custom function processor to suss out the movie's details
+#         #
+#         if self.parser.content == "movies":
+#             movie_details = Movie(details, lookup_result, self)
 
-            # The movie details may have custom functions. If our Movie
-            # object has a method to deal with the results of a specific
-            # custom function, then invoke the custom function on the scraper
-            # then invoke that method on the Movie object.
-            #
-            for url in movie_details.urls:
-                self.custom_function(url, movie_details)
+#             # The movie details may have custom functions. If our Movie
+#             # object has a method to deal with the results of a specific
+#             # custom function, then invoke the custom function on the scraper
+#             # then invoke that method on the Movie object.
+#             #
+#             for url in movie_details.urls:
+#                 self.custom_function(url, movie_details)
 
-            return movie_details
-        else:
-            return Series(details, lookup_result, self)
+#             return movie_details
+#         else:
+#             return Series(details, lookup_result, self)
 
     ##################################################################
     #
@@ -1761,7 +1762,10 @@ class Scraper(object):
         dom = parseString(search_results).firstChild
         entity = first_child(dom, "entity")
         while entity:
-            results.append(LookupResult(entity))
+            if self.parser.content == "movies":
+                results.append(Movie(entity, self))
+            else:
+                results.append(Series(entity, self))
             entity = next_sibling(entity, "entity")
         return results
 
@@ -1825,60 +1829,6 @@ class Scraper(object):
 ##################################################################
 ##################################################################
 #
-class LookupResult(object):
-    """
-    This object contains the details of one search result for a show/movie.
-    It contains the XML that was returned by the scraper as well as parsed
-    out results for the show name, and a url to get its details from.
-    """
-
-    ##################################################################
-    #
-    def __init__(self, entity):
-        self.title = first_child(entity, "title")
-        if self.title:
-            self.title = self.title.firstChild.data.encode("ascii",
-                                                           "xmlcharrefreplace")
-        self.id = first_child(entity, "id")
-        if self.id:
-            self.id = self.id.firstChild.data
-        self.links = []
-
-        # The result may have multiple URL's, hence we use a list.
-        #
-        link = first_child(entity, "url")
-        if link:
-            self.links.append(ScrapeURL(link))
-
-        while link:
-            link = next_sibling(link, "url")
-            if link:
-                self.links.append(ScrapeURL(link))
-
-    ##################################################################
-    #
-    def __str__(self):
-        return self.title.data.encode("ascii","xmlcharrefreplace")
-
-    ##################################################################
-    #
-    def __unicode__(self):
-        return self.title
-
-    ##################################################################
-    #
-    def get_details(self):
-        """
-        Fetch the actual details for the movie or series that this LookupResult
-        represents. This is really just a wrapper around the scraper's
-        'get_details' method.
-        """
-        
-    
-    
-##################################################################
-##################################################################
-#
 class Show(object):
     """
     Abstract base class for movie and tv show details. They both have some
@@ -1935,19 +1885,22 @@ class Show(object):
         # 'lookup()' method we get the data from that URL, set it in our
         # parser's buffer, and then let the parser do the rest of the work.
         #
+        print "Show.. getting details"
         i = 0
         for i,link in enumerate(self.links):
             # NOTE: Buffers are 1-based, not 0-based.
             #
             link_data = link.get()
-            self.parser.set_buffer(i+1, link_data)
+            self.scraper.parser.set_buffer(i+1, link_data)
 
         # And in the final buffer we set the id. The scraper we have
         # loaded knows how many bits of url data it expects and in which
         # buffer the id will be in.
         #
-        self.parser.set_buffer(i+1, self.id)
-        self.xml_details = self.parser.parse(FN_GET_DETAILS, self.settings)
+        self.scraper.parser.set_buffer(i+1, self.id)
+        self.xml_details = self.scraper.parser.parse(FN_GET_DETAILS,
+                                                     self.scraper.settings)
+        print "Details in Show: %s" % self.xml_details
     
 ##################################################################
 ##################################################################
@@ -2300,8 +2253,9 @@ class Series(Show):
         # The basic details are put sussed out by our super class
         # method and put in 'self.xml_details'
         #
+        print "Series.. getting details"
         super(Series, self).get_details()
-
+        print "Series.. details: %s" % self.xml_details
         # And now we get the rest of the details
         #
         self.premiered = None
@@ -2417,6 +2371,7 @@ class Series(Show):
                 self.episodes.append(Episode(ep, self, self.scraper))
                 ep = next_sibling(ep, "episode")
             dom.unlink()
+            dom = None
         
         return
 
