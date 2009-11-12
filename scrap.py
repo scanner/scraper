@@ -28,6 +28,7 @@ import urllib2
 import urlparse
 import string
 import zipfile
+import HTMLParser
 from StringIO import StringIO
 from xml.dom.minidom import parseString, parse
 from xml.parsers.expat import ExpatError
@@ -79,6 +80,29 @@ trim_re = re.compile(r'!!!TRIM!!!((?!!!!TRIM!!!).*?)!!!TRIM!!!',re.DOTALL)
 # replaced with the values of the settings for a specific scraper.
 #
 setting_re = re.compile(r'\$INFO\[(\w+)]')
+
+##################################################################
+##################################################################
+#
+class MLStripper(HTMLParser.HTMLParser):
+    """
+    A simplistic HTMLParser sub-class that strips HTML tags from
+    given text.
+
+    Cribbed from: http://code.activestate.com/recipes/440481/
+
+    >>> x = MLStripper()
+    >>> x.feed('<p>Keep this Text  KEEP  123</p>')
+    >>> x.get_fed_data()
+    'Keep this Text  KEEP  123'
+    """
+    def __init__(self):
+        self.reset()
+        self.fed = []
+    def handle_data(self, d):
+        self.fed.append(d)
+    def get_fed_data(self):
+        return ''.join(self.fed)
 
 ##################################################################
 ##################################################################
@@ -1022,10 +1046,9 @@ class ScraperParser(object):
         - `match_obj`: The regexp match object whose group(1) needs to be
                        cleaned.
         """
-        # XXX Right now this does nothing so we just return the
-        #     the string that is meant to be cleaned.
-        #
-        return match_obj.group(1).strip()
+        x = MLStripper()
+        x.feed(match_obj.group(1).strip())
+        return x.get_fed_data()
 
     ##################################################################
     #
@@ -1999,6 +2022,7 @@ class Movie(Show):
         # At this point we are finished parsing with this dom. minidom says we
         # should still unlink it to be sure for it to be able to be GC'd. Ug.
         #
+        ep = None
         dom.unlink()
         dom = None
 
@@ -2007,7 +2031,7 @@ class Movie(Show):
         #     the parser on every URL as we come across it.
         #
         for url in self.urls:
-            self.custom_function(url, self)
+            self.scraper.custom_function(url, self)
                 
         return
 
