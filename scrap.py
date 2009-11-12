@@ -1918,7 +1918,6 @@ class Show(object):
             #
             link_data = link.get()
             self.scraper.parser.set_buffer(i+1, link_data)
-            print "Setting buffer %d to url results: %s" % (i+1, link.url)
 
         # And in the final buffer we set the id. The scraper we have
         # loaded knows how many bits of url data it expects and in which
@@ -2316,7 +2315,6 @@ class Series(Show):
         # method and put in 'self.xml_details'
         #
         super(Series, self).get_details()
-        print "Series.. details: %s" % self.xml_details
         # And now we get the rest of the details
         #
         self.premiered = None
