@@ -89,6 +89,10 @@ class MLStripper(HTMLParser.HTMLParser):
     A simplistic HTMLParser sub-class that strips HTML tags from
     given text.
 
+    XXX Should clean this up in to a re-callable objec that
+        we can just instantiate once and pass successive strings
+        to strip.
+
     Cribbed from: http://code.activestate.com/recipes/440481/
 
     >>> x = MLStripper()
