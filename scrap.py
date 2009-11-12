@@ -2476,10 +2476,10 @@ class Episode(object):
         Arguments:
         - `details`: The XML string we parse for the details.
         """
-        url_data = episode.url.get()
+        url_data = self.url.get()
 
         self.scraper.parser.set_buffer(1, url_data)
-        self.scraper.parser.set_buffer(2, episode.id)
+        self.scraper.parser.set_buffer(2, self.id)
         ep_details = self.scraper.parser.parse(FN_GET_EPISODE_DETAILS,
                                                self.scraper.settings)
         
