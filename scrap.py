@@ -413,7 +413,6 @@ class ScrapeURL(object):
         # and then encode that as ASCII with characters that can not be
         # represented in ASCII replaced with their XML character references.
         #
-        print "Fetching data from: %s" % self.url
         f = urllib2.urlopen(req)
         content_type = f.info()['Content-Type'].lower()
 
@@ -1914,7 +1913,6 @@ class Show(object):
         # 'lookup()' method we get the data from that URL, set it in our
         # parser's buffer, and then let the parser do the rest of the work.
         #
-        print "Show %s, id: %s.. getting details" % (self.title.encode("ascii","xmlcharrefreplace"),self.id)
         for i,link in enumerate(self.links):
             # NOTE: Buffers are 1-based, not 0-based.
             #
@@ -1928,10 +1926,8 @@ class Show(object):
         #
         i += 1
         self.scraper.parser.set_buffer(i+1, self.id)
-        print "Setting buffer %d to id %s" % (i+1, self.id)
         self.xml_details = self.scraper.parser.parse(FN_GET_DETAILS,
                                                      self.scraper.settings)
-        print "Details in Show: %s" % self.xml_details
     
 ##################################################################
 ##################################################################
@@ -2151,6 +2147,40 @@ class Movie(Show):
 
     ##################################################################
     #
+    def fn_GetIMPALink(self, details):
+        """
+        The handler for the 'GetMovieCast' scraper custom function.
+
+        Arguments:
+        - `details`: XML 'GetMovieCast' custom function results
+        """
+
+        # If the custom url was not actually defined and we had no cached
+        # data, then there is nothing to do.
+        #
+        if details is None:
+            return
+        print "GetIMPALink details: %s" % details
+
+    ##################################################################
+    #
+    def fn_GetTMDBId(self, details):
+        """
+        The handler for the 'GetMovieCast' scraper custom function.
+
+        Arguments:
+        - `details`: XML 'GetMovieCast' custom function results
+        """
+
+        # If the custom url was not actually defined and we had no cached
+        # data, then there is nothing to do.
+        #
+        if details is None:
+            return
+        print "GetTMDBId details: %s" % details
+
+    ##################################################################
+    #
     def fn_GetMovieDirectors(self, details):
         """
         The handler for the 'GetMovieDirectors' scraper custom function.
@@ -2285,7 +2315,6 @@ class Series(Show):
         # The basic details are put sussed out by our super class
         # method and put in 'self.xml_details'
         #
-        print "Series.. getting details"
         super(Series, self).get_details()
         print "Series.. details: %s" % self.xml_details
         # And now we get the rest of the details
