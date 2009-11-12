@@ -385,6 +385,7 @@ class ScrapeURL(object):
         # and then encode that as ASCII with characters that can not be
         # represented in ASCII replaced with their XML character references.
         #
+        print "Fetching data from: %s" % self.url
         f = urllib2.urlopen(req)
         content_type = f.info()['Content-Type'].lower()
 
@@ -1865,7 +1866,8 @@ class Show(object):
     ##################################################################
     #
     def __str__(self):
-        return self.title.encode("ascii","xmlcharrefreplace")
+        return "%s (id: %s)" % (self.title.encode("ascii","xmlcharrefreplace"),
+                                self.id)
 
     ##################################################################
     #
@@ -1885,19 +1887,21 @@ class Show(object):
         # 'lookup()' method we get the data from that URL, set it in our
         # parser's buffer, and then let the parser do the rest of the work.
         #
-        print "Show.. getting details"
-        i = 0
+        print "Show %s, id: %s.. getting details" % (self.title.encode("ascii","xmlcharrefreplace"),self.id)
         for i,link in enumerate(self.links):
             # NOTE: Buffers are 1-based, not 0-based.
             #
             link_data = link.get()
             self.scraper.parser.set_buffer(i+1, link_data)
+            print "Setting buffer %d to url results: %s" % (i+1, link.url)
 
         # And in the final buffer we set the id. The scraper we have
         # loaded knows how many bits of url data it expects and in which
         # buffer the id will be in.
         #
+        i += 1
         self.scraper.parser.set_buffer(i+1, self.id)
+        print "Setting buffer %d to id %s" % (i+1, self.id)
         self.xml_details = self.scraper.parser.parse(FN_GET_DETAILS,
                                                      self.scraper.settings)
         print "Details in Show: %s" % self.xml_details
@@ -2355,15 +2359,15 @@ class Series(Show):
             # Now we run the GetEpisodeList rules on this data that
             # we just retrieved.
             #
-            self.parser.set_buffer(1, url_data)
-            self.parser.set_buffer(2, url.url)
+            self.scraper.parser.set_buffer(1, url_data)
+            self.scraper.parser.set_buffer(2, url.url)
 
             # This gets us a XML string with the list of episodes in it.
             # parse this in to a dom and then go through each <episode>
             # element creating an Episode object to append to our episode
             # list
-            ep_list_result = self.parser.parse(FN_GET_EPISODE_LIST,
-                                               self.settings)
+            ep_list_result = self.scraper.parser.parse(FN_GET_EPISODE_LIST,
+                                                       self.scraper.settings)
             dom = parseString(ep_list_result)
             eps = dom.firstChild
             ep = first_child(eps, "episode")
@@ -2380,6 +2384,7 @@ class Series(Show):
     def __unicode__(self):
         result = []
         result.append(u"Title: %s" % self.title)
+        result.append("ID: %s" % self.id)
         if self.premiered:
             result.append(u"Premiered: %s" % self.premiered)
         if len(self.genres) > 0:
@@ -2395,6 +2400,7 @@ class Series(Show):
         result = []
         result.append("Title: %s" % self.title.encode('ascii',
                                                       'xmlcharrefreplace'))
+        result.append("ID: %s" % self.id)
         if self.premiered:
             result.append("Premiered: %s" % \
                           self.premiered.encode('ascii', 'xmlcharrefreplace'))
@@ -2472,9 +2478,10 @@ class Episode(object):
         """
         url_data = episode.url.get()
 
-        self.parser.set_buffer(1, url_data)
-        self.parser.set_buffer(2, episode.id)
-        ep_details = self.parser.parse(FN_GET_EPISODE_DETAILS, self.settings)
+        self.scraper.parser.set_buffer(1, url_data)
+        self.scraper.parser.set_buffer(2, episode.id)
+        ep_details = self.scraper.parser.parse(FN_GET_EPISODE_DETAILS,
+                                               self.scraper.settings)
         
         self.extended_details = ep_details
         self.actors = []
