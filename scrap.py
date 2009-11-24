@@ -649,17 +649,6 @@ class ScraperParser(object):
         # And replace our $INFO[<foo>] matches with their settings value.
         #
         result = setting_re.sub(self.replace_setting, result)
-
-#         # XXX I have no idea where $INFO[url] turns in to 'imdb.com'
-#         #     somewhere inside xbmc/plex I am sure..
-#         #     I wish I knew where the value of this variable came from. wtf.
-#         #
-#         # Probably should have an 'info' dict set (with defaults) when
-#         # you create the parser.
-#         #
-#         result = result.replace("$INFO[url]","imdb.com")
-#         result = result.replace("$INFO[language]","en")
-
         return result
 
     ##################################################################
@@ -805,10 +794,6 @@ class ScraperParser(object):
             str_expression = expression.firstChild.data
             str_expression = setting_re.sub(self.replace_setting,
                                              str_expression)
-#             # XXX should probably have you define the language when
-#             #     you create the scraper parser.
-#             #
-#             str_expression = str_expression.replace("$INFO[language]","en")
         else:
             str_expression = "(.*)"
 
@@ -1714,61 +1699,6 @@ class Scraper(object):
             dom.unlink()
         return episode_list
 
-#     ##################################################################
-#     #
-#     def get_details(self, lookup_result):
-#         """
-#         Get the details for the show contained in the 'lookup_result'
-#         we are passed.
-
-#         We return a Show object.
-
-#         Arguments:
-#         - `lookup_result`: The Show (Series or Movie) we are getting
-#                            details for.
-#         """
-
-#         # For every URL in our lookup result, get its data and set
-#         # one of the parser buffer's based on it (starting at buffer 1.)
-#         #
-#         i = 0
-#         for link in lookup_result.links:
-#             # The buffers are 1-based, so we have to start at 1.
-#             #
-#             i += 1
-#             link_data = link.get()
-#             self.logger.debug("get_details: retrieved data from %s" \
-#                                   % link.url)
-#             self.parser.set_buffer(i, link_data)
-
-#         # And in the final buffer we set the id. The scraper we have
-#         # loaded knows how many bits of url data it expects and in which
-#         # buffer the id will be in.
-#         #
-#         self.logger.debug("get_details: Setting buffer %d to lookup id %s" % \
-#                               (i+1, lookup_result.id))
-#         self.parser.set_buffer(i+1, lookup_result.id)
-#         self.logger.debug("get_details: calling Get parser")
-#         details = self.parser.parse(FN_GET_DETAILS, self.settings)
-
-#         # If this is a 'movie' type lookup, then we pass these details
-#         # in to the custom function processor to suss out the movie's details
-#         #
-#         if self.parser.content == "movies":
-#             movie_details = Movie(details, lookup_result, self)
-
-#             # The movie details may have custom functions. If our Movie
-#             # object has a method to deal with the results of a specific
-#             # custom function, then invoke the custom function on the scraper
-#             # then invoke that method on the Movie object.
-#             #
-#             for url in movie_details.urls:
-#                 self.custom_function(url, movie_details)
-
-#             return movie_details
-#         else:
-#             return Series(details, lookup_result, self)
-
     ##################################################################
     #
     def lookup(self, search_string):
@@ -2571,65 +2501,3 @@ class Episode(object):
         dom.unlink()
         dom = None
         return
-
-#############################################################################
-#
-def main():
-    """
-    Main entry point for 'scrap'. Parses the arguments and then invokes our
-    Scraper class.
-    """
-    if len(sys.argv) < 3:
-        print "Error: Not enough arguments. Need a xml file, and a movie/show " \
-            "name"
-        print "Usage: %s imdb.xml 'Fight Club' [CreateSearchUrl]" % sys.argv[0]
-        return
-
-    logger = logging.getLogger("scraper")
-    logger.setLevel(logging.DEBUG)
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.DEBUG)
-    formatter = logging.Formatter("%(name)s %(levelname)s: %(message)s")
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
-
-    # Create our scraper object. We pass to it our XML scraper definition
-    # as a string.
-    #
-    f = open(sys.argv[1], 'r')
-    xml = f.read()
-    f.close()
-    scraper = Scraper(xml, logger)
-
-#     # If not specified the default action is 'CreateSearchURL'
-#     #
-#     if len(sys.argv) == 3:
-#         action = FN_CREATE_SEARCH_URL
-#     else:
-#         action = sys.argv[3]
-
-#     # if we are doing 'CreateSearchURL' then the movie name is placed in to
-#     # buffer 1.
-#     #
-#     # XXX This way of passing arguments just seems so bogus. I know why it
-#     #     does it this way because of the replacement strings.. but still.
-#     #
-#     if action == FN_CREATE_SEARCH_URL:
-#         scraper.set_buffer(1, sys.argv[2])
-
-#     scraper.parse(action)
-    res = scraper.old_lookup(sys.argv[2])
-    print res
-    return
-
-############################################################################
-############################################################################
-#
-# Here is where it all starts
-#
-if __name__ == "__main__":
-    main()
-#
-#
-############################################################################
-############################################################################
