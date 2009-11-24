@@ -1137,37 +1137,38 @@ class Settings(object):
         self.defaults = { }
         self.labels = { }
 
-        dom = parseString(settings_xml)
-        s = dom.firstChild
+        if settings_xml:
+            dom = parseString(settings_xml)
+            s = dom.firstChild
 
-        setting = first_child(s, "setting")
-        while setting:
-            setting_id = setting.getAttribute("id")
+            setting = first_child(s, "setting")
+            while setting:
+                setting_id = setting.getAttribute("id")
 
-            # I know the 'sep' setting has no id. I am not sure what it is used
-            # for so I am just going to skip it.
-            #
-            if setting_id != "":
-                self.ids.append(setting_id)
-                self.labels[setting_id] = setting.getAttribute("label")
-                self.types[setting_id] = setting.getAttribute("type")
-
-                # For bool's actually set the default value to True or False.
-                # otherwise it is all strings to us.
+                # I know the 'sep' setting has no id. I am not sure what it is
+                # used for so I am just going to skip it.
                 #
-                default = setting.getAttribute("default")
-                if self.types[setting_id] == "bool":
-                    self.defaults[setting_id] = (default.lower() == 'true')
-                else:
-                    self.defaults[setting_id] = default
+                if setting_id != "":
+                    self.ids.append(setting_id)
+                    self.labels[setting_id] = setting.getAttribute("label")
+                    self.types[setting_id] = setting.getAttribute("type")
 
-                # Settings start out with their default value.
-                #
-                self.values[setting_id] = self.defaults[setting_id]
-            setting = next_sibling(setting, "setting")
+                    # For bool's actually set the default value to True or
+                    # False.  otherwise it is all strings to us.
+                    #
+                    default = setting.getAttribute("default")
+                    if self.types[setting_id] == "bool":
+                        self.defaults[setting_id] = (default.lower() == 'true')
+                    else:
+                        self.defaults[setting_id] = default
 
-        dom.unlink()
-        dom = None
+                    # Settings start out with their default value.
+                    #
+                    self.values[setting_id] = self.defaults[setting_id]
+                setting = next_sibling(setting, "setting")
+
+            dom.unlink()
+            dom = None
 
         # There is always an 'override' setting - "override", which is
         # set based on the Language Override setting in the scraper.
@@ -1293,7 +1294,10 @@ class Scraper(object):
 
         # We need the settings parsed before the user does any lookups
         #
-        settings_xml = self.parser.parse(FN_GET_SETTINGS)
+        try:
+            settings_xml = self.parser.parse(FN_GET_SETTINGS)
+        except BadXML:
+            settings_xml = None
         self.settings = Settings(settings_xml)
 
         return
