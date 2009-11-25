@@ -2488,7 +2488,7 @@ class Episode(object):
         episode = dom.firstChild
 
         self.title = get_child_data(episode, "title", self.title)
-        self.plot = get_child_data(episode, "plot")
+        self.plot = get_child_data(episode, "plot", "")
         self.aired = get_child_data(episode, "aired")
         self.thumbnail = get_child_data(episode, "thumb")
         self.director = get_child_data(episode, "director")
