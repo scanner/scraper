@@ -2258,20 +2258,13 @@ class Series(Show):
         self.thumbs = []
         self.fanart = []
         self.episode_guide_urls = []
+        self.episodes = None
 
         # Further lookups for this item may only give us partial URL's
         # We take the first lookup detail link's url and use that as a
         # base url for further lookups.
         #
         self.base_url = self.links[0].url
-
-        # XXX What we should probably do is make the Series object some sort of
-        #     iterable. This way you just iterate over the episodes to get them
-        #     or access them as indexed items. We can then delay the episode
-        #     guide lookup and individual episode lookups until they were
-        #     actually called for by the user.
-        #
-        self.episodes = []
 
         dom = parseString(self.xml_details)
         ep = dom.firstChild
@@ -2333,6 +2326,20 @@ class Series(Show):
         #
         dom.unlink()
         dom = None
+        return
+
+    ##################################################################
+    #
+    def get_episode_list(self):
+        """
+        Retrieve the episode list from the URL's in the episode guide.
+        Unless we have already retrieved the episode list in which case
+        just return that.
+        """
+        if self.episodes is not None:
+            return self.episodes
+
+        self.episodes = []
 
         # Now before we return pre-emptively fetch the episode list.
         # XXX We _could_ put this in a 'get_episode_list' method that does the
@@ -2340,7 +2347,7 @@ class Series(Show):
         #     here.
         #
         if len(self.episode_guide_urls) == 0:
-            return
+            return self.episodes
 
         for url in self.episode_guide_urls:
             url_data = url.get()
@@ -2366,8 +2373,8 @@ class Series(Show):
             dom.unlink()
             dom = None
         
-        return
-
+            return self.episodes
+    
     ##################################################################
     #
     def __unicode__(self):

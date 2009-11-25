@@ -163,10 +163,12 @@ class CommandProcessor(object):
         """
         if not isinstance(show, scrap.Series):
             raise TypeError("%s is not a Series." % repr(show))
-        if len(show.episodes) == 0:
+        
+        episodes = show.get_episode_list()
+        if len(episodes) == 0:
             print "No episode..."
             return
-        for i,ep in enumerate(show.episodes):
+        for i,ep in enumerate(episodes):
             print "%02d Episode: %s" % (i+1, str(ep))
 
     ##################################################################
