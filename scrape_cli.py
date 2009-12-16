@@ -17,7 +17,7 @@ import logging
 import logging.handlers
 
 #
-import scrap
+import scraper
 
 ##################################################################
 ##################################################################
@@ -79,7 +79,7 @@ class CommandProcessor(object):
         f = open(scraper_definition_file, 'r')
         xml = f.read()
         f.close()
-        self.scraper = scrap.Scraper(xml, logger)
+        self.scraper = scraper.Scraper(xml, logger)
 
     ##################################################################
     #
@@ -160,7 +160,7 @@ class CommandProcessor(object):
         - `show`: A TVShowDetails object for which we are
                   going to get its episode list.
         """
-        if not isinstance(show, scrap.Series):
+        if not isinstance(show, scraper.Series):
             raise TypeError("%s is not a Series." % repr(show))
         if len(show.episodes) == 0:
             print "No episode..."
