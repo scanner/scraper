@@ -144,7 +144,8 @@ class CommandProcessor(object):
         - `show`: a lookup results item.
         """
         show.get_details()
-        print "Details for '%s'" % show.title
+        print "Details for '%s'" % show.title.encode('ascii',
+                                                     'xmlcharrefreplace')
         print "%s\n" % str(show)
 
         result_set.details = show

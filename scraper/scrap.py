@@ -28,6 +28,7 @@ import urllib2
 import urlparse
 import string
 import zipfile
+import HTMLParser
 from StringIO import StringIO
 from xml.dom.minidom import parseString, parse
 from xml.parsers.expat import ExpatError
@@ -79,6 +80,33 @@ trim_re = re.compile(r'!!!TRIM!!!((?!!!!TRIM!!!).*?)!!!TRIM!!!',re.DOTALL)
 # replaced with the values of the settings for a specific scraper.
 #
 setting_re = re.compile(r'\$INFO\[(\w+)]')
+
+##################################################################
+##################################################################
+#
+class MLStripper(HTMLParser.HTMLParser):
+    """
+    A simplistic HTMLParser sub-class that strips HTML tags from
+    given text.
+
+    XXX Should clean this up in to a re-callable objec that
+        we can just instantiate once and pass successive strings
+        to strip.
+
+    Cribbed from: http://code.activestate.com/recipes/440481/
+
+    >>> x = MLStripper()
+    >>> x.feed('<p>Keep this Text  KEEP  123</p>')
+    >>> x.get_fed_data()
+    'Keep this Text  KEEP  123'
+    """
+    def __init__(self):
+        self.reset()
+        self.fed = []
+    def handle_data(self, d):
+        self.fed.append(d)
+    def get_fed_data(self):
+        return ''.join(self.fed)
 
 ##################################################################
 ##################################################################
@@ -1021,10 +1049,9 @@ class ScraperParser(object):
         - `match_obj`: The regexp match object whose group(1) needs to be
                        cleaned.
         """
-        # XXX Right now this does nothing so we just return the
-        #     the string that is meant to be cleaned.
-        #
-        return match_obj.group(1).strip()
+        x = MLStripper()
+        x.feed(match_obj.group(1).strip())
+        return x.get_fed_data()
 
     ##################################################################
     #
@@ -1865,7 +1892,8 @@ class Show(object):
     ##################################################################
     #
     def __str__(self):
-        return self.title.encode("ascii","xmlcharrefreplace")
+        return "%s (id: %s)" % (self.title.encode("ascii","xmlcharrefreplace"),
+                                self.id)
 
     ##################################################################
     #
@@ -1885,8 +1913,6 @@ class Show(object):
         # 'lookup()' method we get the data from that URL, set it in our
         # parser's buffer, and then let the parser do the rest of the work.
         #
-        print "Show.. getting details"
-        i = 0
         for i,link in enumerate(self.links):
             # NOTE: Buffers are 1-based, not 0-based.
             #
@@ -1897,10 +1923,10 @@ class Show(object):
         # loaded knows how many bits of url data it expects and in which
         # buffer the id will be in.
         #
+        i += 1
         self.scraper.parser.set_buffer(i+1, self.id)
         self.xml_details = self.scraper.parser.parse(FN_GET_DETAILS,
                                                      self.scraper.settings)
-        print "Details in Show: %s" % self.xml_details
     
 ##################################################################
 ##################################################################
@@ -1995,6 +2021,7 @@ class Movie(Show):
         # At this point we are finished parsing with this dom. minidom says we
         # should still unlink it to be sure for it to be able to be GC'd. Ug.
         #
+        ep = None
         dom.unlink()
         dom = None
 
@@ -2003,7 +2030,7 @@ class Movie(Show):
         #     the parser on every URL as we come across it.
         #
         for url in self.urls:
-            self.custom_function(url, self)
+            self.scraper.custom_function(url, self)
                 
         return
 
@@ -2116,6 +2143,40 @@ class Movie(Show):
         if details is None:
             return
         print "GetMovieCast details: %s" % details
+
+    ##################################################################
+    #
+    def fn_GetIMPALink(self, details):
+        """
+        The handler for the 'GetMovieCast' scraper custom function.
+
+        Arguments:
+        - `details`: XML 'GetMovieCast' custom function results
+        """
+
+        # If the custom url was not actually defined and we had no cached
+        # data, then there is nothing to do.
+        #
+        if details is None:
+            return
+        print "GetIMPALink details: %s" % details
+
+    ##################################################################
+    #
+    def fn_GetTMDBId(self, details):
+        """
+        The handler for the 'GetMovieCast' scraper custom function.
+
+        Arguments:
+        - `details`: XML 'GetMovieCast' custom function results
+        """
+
+        # If the custom url was not actually defined and we had no cached
+        # data, then there is nothing to do.
+        #
+        if details is None:
+            return
+        print "GetTMDBId details: %s" % details
 
     ##################################################################
     #
@@ -2253,9 +2314,7 @@ class Series(Show):
         # The basic details are put sussed out by our super class
         # method and put in 'self.xml_details'
         #
-        print "Series.. getting details"
         super(Series, self).get_details()
-        print "Series.. details: %s" % self.xml_details
         # And now we get the rest of the details
         #
         self.premiered = None
@@ -2355,15 +2414,15 @@ class Series(Show):
             # Now we run the GetEpisodeList rules on this data that
             # we just retrieved.
             #
-            self.parser.set_buffer(1, url_data)
-            self.parser.set_buffer(2, url.url)
+            self.scraper.parser.set_buffer(1, url_data)
+            self.scraper.parser.set_buffer(2, url.url)
 
             # This gets us a XML string with the list of episodes in it.
             # parse this in to a dom and then go through each <episode>
             # element creating an Episode object to append to our episode
             # list
-            ep_list_result = self.parser.parse(FN_GET_EPISODE_LIST,
-                                               self.settings)
+            ep_list_result = self.scraper.parser.parse(FN_GET_EPISODE_LIST,
+                                                       self.scraper.settings)
             dom = parseString(ep_list_result)
             eps = dom.firstChild
             ep = first_child(eps, "episode")
@@ -2380,6 +2439,7 @@ class Series(Show):
     def __unicode__(self):
         result = []
         result.append(u"Title: %s" % self.title)
+        result.append("ID: %s" % self.id)
         if self.premiered:
             result.append(u"Premiered: %s" % self.premiered)
         if len(self.genres) > 0:
@@ -2395,6 +2455,7 @@ class Series(Show):
         result = []
         result.append("Title: %s" % self.title.encode('ascii',
                                                       'xmlcharrefreplace'))
+        result.append("ID: %s" % self.id)
         if self.premiered:
             result.append("Premiered: %s" % \
                           self.premiered.encode('ascii', 'xmlcharrefreplace'))
@@ -2470,11 +2531,12 @@ class Episode(object):
         Arguments:
         - `details`: The XML string we parse for the details.
         """
-        url_data = episode.url.get()
+        url_data = self.url.get()
 
-        self.parser.set_buffer(1, url_data)
-        self.parser.set_buffer(2, episode.id)
-        ep_details = self.parser.parse(FN_GET_EPISODE_DETAILS, self.settings)
+        self.scraper.parser.set_buffer(1, url_data)
+        self.scraper.parser.set_buffer(2, self.id)
+        ep_details = self.scraper.parser.parse(FN_GET_EPISODE_DETAILS,
+                                               self.scraper.settings)
         
         self.extended_details = ep_details
         self.actors = []
